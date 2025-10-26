@@ -1,11 +1,11 @@
-## lorapipe
+## MeshTNC
 
-[![experimental](http://badges.github.io/stability-badges/dist/experimental.svg)](http://github.com/badges/stability-badges)[![license](https://img.shields.io/github/license/datapartyjs/lorapipe)](https://github.com/datapartyjs/lorapipe/blob/master/license.txt)
+[![experimental](http://badges.github.io/stability-badges/dist/experimental.svg)](http://github.com/badges/stability-badges)[![license](https://img.shields.io/github/license/datapartyjs/MeshTNC)](https://github.com/datapartyjs/MeshTNC/blob/master/license.txt)
 
-Lorapipe is a tool for piping LoRa data to and from consumer grade radios.
+MeshTNC is a tool for piping LoRa data to and from consumer grade radios.
 
- * Code - [github.com/datapartyjs/lorapipe](https://github.com/datapartyjs/lorapipe)
- * Releases - [github.com/datapartyjs/lorapipe/releases](https://github.com/datapartyjs/lorapipe/releases)
+ * Code - [github.com/datapartyjs/MeshTNC](https://github.com/datapartyjs/MeshTNC)
+ * Releases - [github.com/datapartyjs/MeshTNC/releases](https://github.com/datapartyjs/MeshTNC/releases)
  * Support - [ko-fi/dataparty](https://ko-fi.com/dataparty)
 
 ## Features
@@ -17,13 +17,13 @@ Lorapipe is a tool for piping LoRa data to and from consumer grade radios.
 
 ## Compiling
 - Install [PlatformIO](https://docs.platformio.org) in [Visual Studio Code](https://code.visualstudio.com).
-- Clone and open the lorapipe repository in Visual Studio Code.
+- Clone and open the MeshTNC repository in Visual Studio Code.
 - See the example applications you can modify and run:
   - [Simple Repeater](./examples/simple_repeater)
 
 ## Flashing
 
-Download precompiled firmware releases - [github.com/datapartyjs/lorapipe/releases](https://github.com/datapartyjs/lorapipe/releases)
+Download precompiled firmware releases - [github.com/datapartyjs/MeshTNC/releases](https://github.com/datapartyjs/MeshTNC/releases)
 
 We haven't built a flashing tool yet. You can flash builds using the meshcore flasher, the OEM provided flashing tools or using the developer instructions to flash using VS Code.
 
@@ -33,15 +33,15 @@ We haven't built a flashing tool yet. You can flash builds using the meshcore fl
 
 ## Hardware Compatibility
 
-lorapipe is designed for devices supported by MeshCore so check their support list in the [MeshCore Flasher](https://flasher.meshcore.co.uk). We support most of the same hardware see [variants](https://github.com/datapartyjs/lorapipe/tree/main/variants).
+MeshTNC is designed for devices supported by MeshCore so check their support list in the [MeshCore Flasher](https://flasher.meshcore.co.uk). We support most of the same hardware see [variants](https://github.com/datapartyjs/MeshTNC/tree/main/variants).
 
 ## Serial CLI
 
-The lorapipe firmware initially starts up in a serial mode which is human readable. You can connect to the serial console using a serial terminal application like below.
+The MeshTNC firmware initially starts up in a serial mode which is human readable. You can connect to the serial console using a serial terminal application like below.
 
 `minicom -D /dev/ttyACM0`
 
-Once connected the lorapipe device has a simple CLI. The CLI is largely similar to meshcore with a few notable additions.
+Once connected the MeshTNC device has a simple CLI. The CLI is largely similar to meshcore with a few notable additions.
 
 ### CLI additions
 
@@ -94,14 +94,14 @@ Once connected the lorapipe device has a simple CLI. The CLI is largely similar 
 
 ### KISS Mode
 
- * Open a serial console and connect to the lorapipe device
+ * Open a serial console and connect to the MeshTNC device
  * `serial mode kiss`
 
 ## APRS over LoRa
 
 <img src="https://github.com/user-attachments/assets/ca4e8caf-5eff-44d3-8ff0-c9d57bfc6ca3" width="40%"></img> <img src="https://github.com/user-attachments/assets/aa4506dd-34b6-4277-af8e-3470ef8f8dfa" width="40%"></img> 
 
-You can use your favorite APRS tools with lorapipe. Simply select a frequency, place the radio into kiss mode and connect to your APRS tools as a KISS TNC device.
+You can use your favorite APRS tools with MeshTNC. Simply select a frequency, place the radio into kiss mode and connect to your APRS tools as a KISS TNC device.
 
  * `minicom -D /dev/ttyACM0`
    * `set radio 918.25,500.0,7,5,0x16`
@@ -109,7 +109,7 @@ You can use your favorite APRS tools with lorapipe. Simply select a frequency, p
 
 ### APRS Software
 
-lorapipe should work with lots of APRS clients, we've tested on the following:
+MeshTNC should work with lots of APRS clients, we've tested on the following:
 
  * [xastir](https://xastir.org/index.php/Main_Page)
  * [APRSisce32](http://aprsisce.wikidot.com/)
@@ -121,7 +121,7 @@ lorapipe should work with lots of APRS clients, we've tested on the following:
 <img src="https://github.com/user-attachments/assets/d8347c1c-d76d-469b-89d2-cd2c18859607" width="40%"></img>
 
 
-Run the following on two or more computers, each with a lorapipe device attached, to create an ethernet over LoRa network.
+Run the following on two or more computers, each with a MeshTNC device attached, to create an ethernet over LoRa network.
 
  * Install [`tncattach`](https://github.com/markqvist/tncattach)
    * `git clone https://github.com/markqvist/tncattach.git`
