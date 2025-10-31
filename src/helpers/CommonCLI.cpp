@@ -358,7 +358,7 @@ void CommonCLI::handleCLICommand(
       } else {
         strcpy(resp, "Error, cannot be negative");
       }
-    } else if (memcmp(config, "tx ", 3) == 0) {
+    } else if (memcmp(config, "txpower ", 3) == 0) {
       _prefs->tx_power_dbm = atoi(&config[3]);
       savePrefs();
       _callbacks->setTxPower(_prefs->tx_power_dbm);
