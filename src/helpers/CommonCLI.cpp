@@ -276,7 +276,7 @@ void CommonCLI::handleCLICommand(
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->rx_delay_base));
     } else if (memcmp(config, "txdelay", 7) == 0) {
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->tx_delay_factor));
-    } else if (memcmp(config, "tx", 2) == 0 &&
+    } else if (memcmp(config, "txpower", 2) == 0 &&
                (config[2] == 0 || config[2] == ' '))
     {
       sprintf(resp, "> %d", (uint32_t) _prefs->tx_power_dbm);
