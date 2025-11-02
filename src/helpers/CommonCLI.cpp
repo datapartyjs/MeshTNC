@@ -276,7 +276,7 @@ void CommonCLI::handleCLICommand(
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->rx_delay_base));
     } else if (memcmp(config, "txdelay", 7) == 0) {
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->tx_delay_factor));
-    } else if (memcmp(config, "tx", 2) == 0 &&
+    } else if (memcmp(config, "txpower", 2) == 0 &&
                (config[2] == 0 || config[2] == ' '))
     {
       sprintf(resp, "> %d", (uint32_t) _prefs->tx_power_dbm);
@@ -358,7 +358,7 @@ void CommonCLI::handleCLICommand(
       } else {
         strcpy(resp, "Error, cannot be negative");
       }
-    } else if (memcmp(config, "tx ", 3) == 0) {
+    } else if (memcmp(config, "txpower ", 3) == 0) {
       _prefs->tx_power_dbm = atoi(&config[3]);
       savePrefs();
       _callbacks->setTxPower(_prefs->tx_power_dbm);
@@ -496,14 +496,20 @@ void CommonCLI::handleKISSCommand(
   const uint16_t kiss_data_len = len-1;
   kiss_data++; // advance to data
 
-  // this KISS data is from the host to our KISS port number
-  if (kiss_port == _prefs->kiss_port) {
+  // this KISS data is from the host to port 0xF
+  if (kiss_port == 0xF) {
     switch (kiss_cmd) {
       case KISS_CMD_RETURN:
         _cmd[0] = 0; // reset command buffer
         _cli_mode = CLIMode::CLI; // return to CLI mode
         Serial.println("  -> Exiting KISS mode and returning to CLI mode.");
-        break;
+        return;
+    }
+  }
+
+  // this KISS data is from the host to our KISS port number
+  if (kiss_port == _prefs->kiss_port) {
+    switch (kiss_cmd) {
       case KISS_CMD_TXDELAY:
         // TX delay is specified in 10ms units
         if (kiss_data_len > 0) _kiss_txdelay = atoi(&kiss_data[0]) * 10;
