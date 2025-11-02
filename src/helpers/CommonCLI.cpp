@@ -496,14 +496,20 @@ void CommonCLI::handleKISSCommand(
   const uint16_t kiss_data_len = len-1;
   kiss_data++; // advance to data
 
-  // this KISS data is from the host to our KISS port number
-  if (kiss_port == _prefs->kiss_port) {
+  // this KISS data is from the host to port 0xF
+  if (kiss_port == 0xF) {
     switch (kiss_cmd) {
       case KISS_CMD_RETURN:
         _cmd[0] = 0; // reset command buffer
         _cli_mode = CLIMode::CLI; // return to CLI mode
         Serial.println("  -> Exiting KISS mode and returning to CLI mode.");
-        break;
+        return;
+    }
+  }
+
+  // this KISS data is from the host to our KISS port number
+  if (kiss_port == _prefs->kiss_port) {
+    switch (kiss_cmd) {
       case KISS_CMD_TXDELAY:
         // TX delay is specified in 10ms units
         if (kiss_data_len > 0) _kiss_txdelay = atoi(&kiss_data[0]) * 10;
