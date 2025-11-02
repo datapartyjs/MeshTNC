@@ -52,6 +52,7 @@ Once connected the lorapipe device has a simple CLI. The CLI is largely similar 
  * `serial mode kiss` - Switch to KISS mode
  * `rxlog on`
    * Output format: ` [timestamp],[type=RXLOG],[rssi],[snr],[hex...]\n` 
+ * `set`/`get txpower` - meshcore's `set`/`get tx` has been renamed appropriately
 
  <details>
       <summary> Existing Commands</summary>
@@ -71,7 +72,6 @@ Once connected the lorapipe device has a simple CLI. The CLI is largely similar 
  * `get radio`
  * `get rxdelay`
  * `get txdelay`
- * `get tx`
  * `get freq`
  * `set af`
  * `set int.thresh`
@@ -82,7 +82,6 @@ Once connected the lorapipe device has a simple CLI. The CLI is largely similar 
  * `set lon`
  * `set rxdelay`
  * `set txdelay`
- * `set tx`
  * `set freq`
  * `erase`
  * `ver`
@@ -96,6 +95,9 @@ Once connected the lorapipe device has a simple CLI. The CLI is largely similar 
 
  * Open a serial console and connect to the lorapipe device
  * `serial mode kiss`
+ * To exit KISS mode and return to CLI mode, you can send a KISS exit sequence like so: `echo -ne '\xC0\xFF\xC0' > /dev/ttyUSBx`
+   * For this to work, ensure your serial port's baud is set correctly with: `stty -F /dev/ttyUSBx <baud>`
+   * Serial port configuration can be viewed with `stty -F /dev/ttyUSBx`
 
 ## APRS over LoRa
 
