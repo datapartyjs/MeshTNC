@@ -128,7 +128,7 @@ MeshTNC should work with lots of APRS clients, we've tested on the following:
 
 There is a wealth of knowledge and examples available here: https://linux-ax25.in-berlin.de/wiki/AX.25
 
-There's a lot of very interesting things that can be done directly over AX.25 without involving IP, but the following example will demonstrate how to assign an IP address to the AX.25 interface. This can be done on two different machines with two MeshTNC's, and you should be able to ping between them over the air, as long as the radio settings on the MeshTNC's match, and the IP addresses assigned are unique, and in the same subnet. IP routing will also work if configured properly!
+There's a lot of very interesting things that can be done directly over AX.25 without involving IP, but the following example will demonstrate how to assign an IP address to the AX.25 interface. This can be done on two different machines with two MeshTNC's, and you should be able to ping between them over the air, as long as the radio settings on the MeshTNC's match, the IP addresses assigned on each system are in the same subnet and different from one another, and the callsigns (or at least SSID's) differ on each system. IP routing will also work if configured properly!
 
 ### AX.25 Quick Start
 
