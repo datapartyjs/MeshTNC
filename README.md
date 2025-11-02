@@ -37,11 +37,16 @@ lorapipe is designed for devices supported by MeshCore so check their support li
 
 ## Serial CLI
 
-The lorapipe firmware initially starts up in a serial mode which is human readable. You can connect to the serial console using a serial terminal application like below.
+The lorapipe firmware initially starts up in a serial mode which is human readable. You can connect to the serial console using a serial terminal application. You may have to configure the baud rate, which defaults to `115200`. The following command uses `minicom` to connect to the serial port, please replace `/dev/ttyACM0` with the proper device node for your serial port:
 
-`minicom -D /dev/ttyACM0`
+`minicom -b 115200 -D /dev/ttyACM0`
 
-Once connected the lorapipe device has a simple CLI. The CLI is largely similar to meshcore with a few notable additions.
+It may be helpful on Linux systems to run the following command to set the default baud when interacting with the serial port:
+
+`stty -F /dev/ttyACM0 115200`
+
+Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar to MeshCore with a few notable additions.
+
 
 ### CLI additions
 
@@ -52,7 +57,7 @@ Once connected the lorapipe device has a simple CLI. The CLI is largely similar 
  * `serial mode kiss` - Switch to KISS mode
  * `rxlog on`
    * Output format: ` [timestamp],[type=RXLOG],[rssi],[snr],[hex...]\n` 
- * `set`/`get txpower` - meshcore's `set`/`get tx` has been renamed appropriately
+ * `set`/`get txpower` - MeshCore's `set`/`get tx` has been renamed appropriately
 
  <details>
       <summary> Existing Commands</summary>
@@ -91,13 +96,17 @@ Once connected the lorapipe device has a simple CLI. The CLI is largely similar 
  * `rxlog off`
 </details>
 
-### KISS Mode
+## KISS Mode
 
+KISS mode allows for operating the LoRA radio as a KISS modem, which makes it compatible with a lot of pre-existing radio software, including APRS software, and the Linux kernel.
+
+### Enabling KISS Mode
  * Open a serial console and connect to the lorapipe device
  * `serial mode kiss`
+
+### Exiting KISS Mode
  * To exit KISS mode and return to CLI mode, you can send a KISS exit sequence like so: `echo -ne '\xC0\xFF\xC0' > /dev/ttyUSBx`
-   * For this to work, ensure your serial port's baud is set correctly with: `stty -F /dev/ttyUSBx <baud>`
-   * Serial port configuration can be viewed with `stty -F /dev/ttyUSBx`
+   * For this to work, ensure your serial port's settings and baud rate is set correctly with `stty`
 
 ## APRS over LoRa
 
@@ -116,7 +125,26 @@ lorapipe should work with lots of APRS clients, we've tested on the following:
  * [xastir](https://xastir.org/index.php/Main_Page)
  * [APRSisce32](http://aprsisce.wikidot.com/)
 
+## AX.25 over LoRA
 
+There is a wealth of knowledge and examples available here: https://linux-ax25.in-berlin.de/wiki/AX.25
+
+There's a lot of very interesting things that can be done directly over AX.25 without involving IP, but the following example will demonstrate how to assign an IP address to the AX.25 interface. This can be done on two different machines with two MeshTNC's, and you should be able to ping between them over the air, as long as the radio settings on the MeshTNC's match, and the IP addresses assigned are unique, and in the same subnet. IP routing will also work if configured properly!
+
+### AX.25 Quick Start
+
+* Attach the MeshTNC to a Linux system.
+* Assign the proper radio settings on the MeshTNC CLI
+* Enter KISS mode on the MeshTNC CLI
+  * After entering KISS mode, please exit your terminal program to release the serial port.
+* On the attached Linux system, edit `/etc/ax25/axports`:
+  * Add the following line:
+    * `0               AL1CE-1         115200  220     2       AX25 test`
+    * Replace `AL1CE-1` with your callsign and SSID
+* Attach the MeshTNC to the AX.25 port using: `kissattach /dev/ttyACM0 0`
+  * After running this command, check to see what interface it created: `sudo dmesg | grep mkiss`
+    * `[88447.885556] mkiss: ax0: crc mode is auto.`
+* You can assign an IP address by running: `ip addr add 10.10.10.10/24 dev ax0`
 
 ## Ethernet over LoRa
 
