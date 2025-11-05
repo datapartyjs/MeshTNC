@@ -92,8 +92,10 @@ protected:
       if (!_prefs.log_rx) return;
       CommonCLI* cli = getCLI();
       Serial.printf("%lu", rtc_clock.getCurrentTime());
-      Serial.printf(",RXLOG,%.2f,%.2f", rssi, snr);
-      Serial.print(",");
+      // For some reason the STMicro chokes on the below...
+      // Something about printing the rssi and snr?
+      Serial.printf(",RXLOG,0.0,0.0,");
+      // Serial.printf(",RXLOG,%.2f,%.2f,", rssi, snr);
       mesh::Utils::printHex(Serial, raw, len);
       Serial.println();
     } else if (cli_mode == CLIMode::KISS) {
@@ -309,6 +311,7 @@ void setup() {
 #else
   #error "need to define filesystem"
 #endif
+  Serial.println("Starting!");
   the_mesh.begin(fs);
 }
 

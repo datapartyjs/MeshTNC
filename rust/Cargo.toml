@@ -1,0 +1,21 @@
+[package]
+name = "meshtnc"
+version = "0.1.0"
+edition = "2024"
+authors = ["Will Dillon <crates@houedillon.com>"]
+homepage = "https://github.com/datapartyjs/MeshTNC"
+repository = "https://github.com/datapartyjs/MeshTNC"
+license = "MIT"
+description = "Host tool for interacting with MeshTNC hardware"
+default-run = "meshtnc"
+
+[dependencies]
+tokio = { version = "^1.8", features = ["full"]}
+tokio-util = {version = "*", features = ["codec"]}
+tokio-serial = "5.4.1"
+color-eyre = "*"
+pretty_env_logger = "*"
+clap = { version = "4.1.7", features = ["derive"] }
+log = "0.4.17"
+futures = "0.3"
+atomic_enum = "0.3.0"
