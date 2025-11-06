@@ -2,6 +2,47 @@
 
 // https://en.wikipedia.org/wiki/KISS_(amateur_radio_protocol)
 
+uint16_t KISSModem::encodeKISSFrame(
+  const KISSCmd cmd, 
+  const uint8_t* data, const int data_len, 
+  uint8_t* kiss_buf, const int kiss_buf_size
+) {
+  // begin response
+  kiss_buf[0] = KISS_FEND;
+  // set KISS port and supplied cmd
+  uint8_t kiss_cmd =
+    ((_port << 4) & KISS_MASK_PORT) |
+    (cmd & KISS_MASK_CMD);
+  kiss_buf[1] = kiss_cmd;
+  // start after FEND and KISS CMD byte
+  uint16_t kiss_buf_len = 2;
+  // escape bytes that need escaping
+  for (int i = 0; i < data_len; i++) {
+    if (kiss_buf_len + 2 > kiss_buf_size) {
+      // handle buffer oversize, just truncate packet for now
+      // + 2 because 1 byte can become 2 due to the following switch statement
+      //     and I'd really like to keep that switch statement simple
+      // TODO: error handling?
+      break;
+    }
+    switch (data[i]) {
+      case KISS_FEND:
+        kiss_buf[kiss_buf_len++] = KISS_FESC;
+        kiss_buf[kiss_buf_len++] = KISS_TFEND;
+        break;
+      case KISS_FESC:
+        kiss_buf[kiss_buf_len++] = KISS_FESC;
+        kiss_buf[kiss_buf_len++] = KISS_TFESC;
+        break;
+      default:
+        kiss_buf[kiss_buf_len++] = data[i];
+        break;
+    }
+  }
+  kiss_buf[kiss_buf_len++] = KISS_FEND;    // end response
+  return kiss_buf_len;
+}
+
 void KISSModem::parseSerialKISS() {
   char* command = _cmd;
   while (Serial.available() && _len < sizeof(_cmd)-1) {

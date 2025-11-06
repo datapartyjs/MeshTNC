@@ -76,5 +76,10 @@ public:
   void loadPrefs(FILESYSTEM* _fs);
   void savePrefs(FILESYSTEM* _fs);
   void handleSerialData();
-  CLIMode getCLIMode();
+  CLIMode getCLIMode() { return _cli_mode; };
+  KISSModem* getKISSModem() { 
+    // this isn't supposed to be here but we're refactoring again for multiple radio support soon and it will change again then
+    KISSModem* kiss = &_kiss;
+    return kiss;
+  };
 };

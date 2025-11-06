@@ -25,6 +25,17 @@ enum CLIMode { CLI, KISS };
 #define KISS_CMD_VENDOR  0x6
 #define KISS_CMD_RETURN  0xF
 
+enum KISSCmd {
+  Data = 0x0,
+  TxDelay = 0x1,
+  Persist = 0x2,
+  SlotTime = 0x3,
+  TxTail = 0x4,
+  FullDuplex = 0x5,
+  Vendor = 0x6,
+  Return = 0xF
+};
+
 class KISSModem {
   uint16_t _len;
   bool _esc;
@@ -46,5 +57,9 @@ class KISSModem {
     void reset() {_len = 0; };
     void parseSerialKISS();
     void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, uint16_t len);
-
+    uint16_t encodeKISSFrame(
+      const KISSCmd cmd, 
+      const uint8_t* data, const int data_len, 
+      uint8_t* kiss_buf, const int kiss_buf_size
+    ); // returns the size/length of the encoded data/KISS frame
 };
