@@ -11,14 +11,14 @@ enum CLIMode { CLI, KISS };
 #define KISS_MASK_PORT   0xF0
 #define KISS_MASK_CMD    0x0F
 
-enum KISSFrame {
+enum KISSFrame: uint16_t {
   FEND = 0xC0,
   FESC = 0xDB,
   TFEND = 0xDC,
   TFESC = 0xDD
 };
 
-enum KISSCmd {
+enum KISSCmd: uint8_t {
   Data = 0x0,
   TxDelay = 0x1,
   Persist = 0x2,
