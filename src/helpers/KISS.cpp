@@ -8,7 +8,7 @@ uint16_t KISSModem::encodeKISSFrame(
   uint8_t* kiss_buf, const int kiss_buf_size
 ) {
   // begin response
-  kiss_buf[0] = KISS_FEND;
+  kiss_buf[0] = KISSFrame::FEND;
   // set KISS port and supplied cmd
   uint8_t kiss_cmd =
     ((_port << 4) & KISS_MASK_PORT) |
@@ -26,20 +26,20 @@ uint16_t KISSModem::encodeKISSFrame(
       break;
     }
     switch (data[i]) {
-      case KISS_FEND:
-        kiss_buf[kiss_buf_len++] = KISS_FESC;
-        kiss_buf[kiss_buf_len++] = KISS_TFEND;
+      case KISSFrame::FEND:
+        kiss_buf[kiss_buf_len++] = KISSFrame::FESC;
+        kiss_buf[kiss_buf_len++] = KISSFrame::TFEND;
         break;
-      case KISS_FESC:
-        kiss_buf[kiss_buf_len++] = KISS_FESC;
-        kiss_buf[kiss_buf_len++] = KISS_TFESC;
+      case KISSFrame::FESC:
+        kiss_buf[kiss_buf_len++] = KISSFrame::FESC;
+        kiss_buf[kiss_buf_len++] = KISSFrame::TFESC;
         break;
       default:
         kiss_buf[kiss_buf_len++] = data[i];
         break;
     }
   }
-  kiss_buf[kiss_buf_len++] = KISS_FEND;    // end response
+  kiss_buf[kiss_buf_len++] = KISSFrame::FEND;    // end response
   return kiss_buf_len;
 }
 
@@ -49,7 +49,7 @@ void KISSModem::parseSerialKISS() {
     uint8_t b = Serial.read();
     // handle KISS commands
     switch (b) {
-      case KISS_FESC:
+      case KISSFrame::FESC:
         // set escape mode if we encounter a FESC
         if (_esc) { // aborted transmission, double FESC
           _len = 0;
@@ -58,7 +58,7 @@ void KISSModem::parseSerialKISS() {
           _esc = true;
         }
         continue;
-      case KISS_FEND:
+      case KISSFrame::FEND:
         // if current command length is greater than 0 and we encounter a FEND,
         // handle the whole command buffer as a KISS command, send length, and
         // then reset length to zero to wait for the next KISS command
@@ -70,21 +70,21 @@ void KISSModem::parseSerialKISS() {
           _len = 0;
         }
         break;
-      case KISS_TFESC:
+      case KISSFrame::TFESC:
         // literal FESC to cmdbuf if in escape mode, otherwise literal TFESC
         if (_esc) {
-          _cmd[_len++] = KISS_FESC;
+          _cmd[_len++] = KISSFrame::FESC;
           _esc = false;
         } else
-          _cmd[_len++] = KISS_TFESC;
+          _cmd[_len++] = KISSFrame::TFESC;
         break;
-      case KISS_TFEND:
+      case KISSFrame::TFEND:
         // literal FEND to cmdbuf if in escape mode, otherwise literal TFEND
         if (_esc) {
-          _cmd[_len++] = KISS_FEND;
+          _cmd[_len++] = KISSFrame::FEND;
           _esc = false;
         } else
-          _cmd[_len++] = KISS_TFEND;
+          _cmd[_len++] = KISSFrame::TFEND;
         break;
       default:
         // add byte to command buffer and increment _len,
@@ -118,13 +118,13 @@ void KISSModem::handleKISSCommand(
   const uint8_t kiss_cmd = instr_byte & 0x0F;
 
   // kiss port&command are 1 byte, indicate remaining data length
-  const uint16_t kiss_data_len = len-1;
+  const uint16_t kiss_data_len = len - 1;
   kiss_data++; // advance to data
 
   // this KISS data is from the host to port 0xF
   if (kiss_port == 0xF) {
     switch (kiss_cmd) {
-      case KISS_CMD_RETURN:
+      case KISSCmd::Return:
         _cmd[0] = 0; // reset command buffer
         *_cli_mode = CLIMode::CLI; // return to CLI mode
         Serial.println("  -> Exiting KISS mode and returning to CLI mode.");
@@ -135,11 +135,11 @@ void KISSModem::handleKISSCommand(
   // this KISS data is from the host to our KISS port number
   if (kiss_port == _port) {
     switch (kiss_cmd) {
-      case KISS_CMD_TXDELAY:
+      case KISSCmd::TxDelay:
         // TX delay is specified in 10ms units
         if (kiss_data_len > 0) _txdelay = atoi(&kiss_data[0]) * 10;
         break;
-      case KISS_CMD_DATA:
+      case KISSCmd::Data:
         if (kiss_data_len == 0) break;
         const uint8_t* tx_buf = reinterpret_cast<const uint8_t*>(kiss_data);
         mesh::Packet* pkt = _mesh->obtainNewPacket();

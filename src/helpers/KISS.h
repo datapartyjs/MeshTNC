@@ -8,22 +8,15 @@ enum CLIMode { CLI, KISS };
 #define CMD_BUF_LEN_MAX 500
 
 // KISS Definitions
-#define KISS_FEND  0xC0
-#define KISS_FESC  0xDB
-#define KISS_TFEND 0xDC
-#define KISS_TFESC 0xDD
-
 #define KISS_MASK_PORT   0xF0
 #define KISS_MASK_CMD    0x0F
 
-#define KISS_CMD_DATA    0x0
-#define KISS_CMD_TXDELAY 0x1
-#define KISS_CMD_PERSIST 0x2
-#define KISS_CMD_SLTTIME 0x3
-#define KISS_CMD_TXTAIL  0x4
-#define KISS_CMD_FULLDUP 0x5
-#define KISS_CMD_VENDOR  0x6
-#define KISS_CMD_RETURN  0xF
+enum KISSFrame {
+  FEND = 0xC0,
+  FESC = 0xDB,
+  TFEND = 0xDC,
+  TFESC = 0xDD
+};
 
 enum KISSCmd {
   Data = 0x0,
