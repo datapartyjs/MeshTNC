@@ -110,15 +110,11 @@ void CommonCLI::savePrefs() {
   _callbacks->savePrefs();
 }
 
-CLIMode CommonCLI::getCLIMode() {
-  return _cli_mode;
-}
-
 void CommonCLI::handleSerialData() {
   if (_cli_mode == CLIMode::CLI) {
-    this->parseSerialCLI();
+    parseSerialCLI();
   } else if (_cli_mode == CLIMode::KISS) {
-    this->parseSerialKISS();
+    _kiss.parseSerialKISS();
   }
 }
 
@@ -166,7 +162,7 @@ void CommonCLI::handleCLICommand(
     const char* mode = &command[12];
     if (memcmp(mode, "kiss", 4) == 0) {
       Serial.println("  -> Entering KISS mode!");
-      _kiss_len = 0;  // reset kiss length
+      _kiss.reset();  // reset kiss length
       _cli_mode = CLIMode::KISS;
       return;
     }
@@ -414,113 +410,5 @@ void CommonCLI::handleCLICommand(
     strcpy(resp, "   EOF");
   } else {
     strcpy(resp, "Unknown command");
-  }
-}
-
-// https://en.wikipedia.org/wiki/KISS_(amateur_radio_protocol)
-void CommonCLI::parseSerialKISS() {
-  char* command = _cmd;
-  while (Serial.available() && _kiss_len < sizeof(_cmd)-1) {
-    uint8_t b = Serial.read();
-    // handle KISS commands
-    switch (b) {
-      case KISS_FESC:
-        // set escape mode if we encounter a FESC
-        if (_kiss_esc) { // aborted transmission, double FESC
-          _kiss_len = 0;
-          _kiss_esc = false;
-        } else { // regular escape
-          _kiss_esc = true;
-        }
-        continue;
-      case KISS_FEND:
-        // if current command length is greater than 0 and we encounter a FEND,
-        // handle the whole command buffer as a KISS command, send length, and
-        // then reset length to zero to wait for the next KISS command
-        if (_kiss_len > 0) {
-          // encountered literal FEND while in escape mode. reset escape mode
-          if (_kiss_esc) _kiss_esc = false;
-          // handle the command and reset kiss cmdbuf length to 0
-          handleKISSCommand(0, command, _kiss_len);
-          _kiss_len = 0;
-        }
-        break;
-      case KISS_TFESC:
-        // literal FESC to cmdbuf if in escape mode, otherwise literal TFESC
-        if (_kiss_esc) {
-          _cmd[_kiss_len++] = KISS_FESC;
-          _kiss_esc = false;
-        } else
-          _cmd[_kiss_len++] = KISS_TFESC;
-        break;
-      case KISS_TFEND:
-        // literal FEND to cmdbuf if in escape mode, otherwise literal TFEND
-        if (_kiss_esc) {
-          _cmd[_kiss_len++] = KISS_FEND;
-          _kiss_esc = false;
-        } else
-          _cmd[_kiss_len++] = KISS_TFEND;
-        break;
-      default:
-        // add byte to command buffer and increment _kiss_len,
-        // if it is not handled above.
-        // eat and discard any unknown escaped bytes
-        if (!_kiss_esc) _cmd[_kiss_len++] = b;
-        break;
-    }
-  }
-
-  // check if command buffer is full after reading and processing last byte
-  if (_kiss_len == sizeof(_cmd)-1) {
-    // just send the truncated transmission for now
-    // TODO: handle error condition?
-    handleKISSCommand(0, command, _kiss_len);
-    _kiss_len = 0;
-  }
-}
-
-// https://www.ax25.net/kiss.aspx
-void CommonCLI::handleKISSCommand(
-  uint32_t sender_timestamp,
-  const char* kiss_data,
-  const uint16_t len
-){
-  if (len == 0) return; // we shouldn't hit this but just in case
-
-  const uint8_t instr_byte = static_cast<uint8_t>(kiss_data[0]);
-  
-  const uint8_t kiss_port = (instr_byte & 0xF0) >> 4;
-  const uint8_t kiss_cmd = instr_byte & 0x0F;
-
-  // kiss port&command are 1 byte, indicate remaining data length
-  const uint16_t kiss_data_len = len-1;
-  kiss_data++; // advance to data
-
-  // this KISS data is from the host to port 0xF
-  if (kiss_port == 0xF) {
-    switch (kiss_cmd) {
-      case KISS_CMD_RETURN:
-        _cmd[0] = 0; // reset command buffer
-        _cli_mode = CLIMode::CLI; // return to CLI mode
-        Serial.println("  -> Exiting KISS mode and returning to CLI mode.");
-        return;
-    }
-  }
-
-  // this KISS data is from the host to our KISS port number
-  if (kiss_port == _prefs->kiss_port) {
-    switch (kiss_cmd) {
-      case KISS_CMD_TXDELAY:
-        // TX delay is specified in 10ms units
-        if (kiss_data_len > 0) _kiss_txdelay = atoi(&kiss_data[0]) * 10;
-        break;
-      case KISS_CMD_DATA:
-        if (kiss_data_len == 0) break;
-        const uint8_t* tx_buf = reinterpret_cast<const uint8_t*>(kiss_data);
-        mesh::Packet* pkt = _mesh->obtainNewPacket();
-        pkt->readFrom(tx_buf, kiss_data_len);
-        _mesh->sendPacket(pkt, 1, _kiss_txdelay);
-        break;
-    }
   }
 }
