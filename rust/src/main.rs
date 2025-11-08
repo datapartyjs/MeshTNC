@@ -1,10 +1,13 @@
+use std::path::PathBuf;
 use clap::Parser;
+use meshcore::identity::KeystoreInput;
 use tokio_serial::available_ports;
 use color_eyre::eyre::Result;
 use pretty_env_logger;
 use log::debug;
 
 use meshtnc::MeshTNC;
+use tokio_util::bytes::Bytes;
 
 #[derive(Debug, Parser)]
 struct AppArgs {
@@ -35,6 +38,9 @@ struct AppArgs {
     /// Sync Byte
     #[arg(long, default_value = "0x12")]
     pub sb: String,
+
+    #[arg(long, short, help = "Identities file for packet decryption")]
+    pub identities_file: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -44,6 +50,15 @@ async fn main() -> Result<()> {
     debug!("argv: {:?}", std::env::args());
     let args = AppArgs::parse();
     debug!("Args: {args:?}");
+
+    // Attempt to load the identities file from disk and load all the identities
+    let keystore = if let Some(id_path) = args.identities_file {
+        let identity_string = std::fs::read_to_string(id_path)?;
+        let keystore_in: KeystoreInput = toml::from_str(&identity_string)?;
+        keystore_in.compile()
+    } else {
+        KeystoreInput { identities: vec![], contacts: vec![], groups: vec![] }.compile()
+    };
 
     if args.list {
         let ports = available_ports()?;
@@ -68,6 +83,7 @@ async fn main() -> Result<()> {
         args.sf,
         args.cr,
         args.sb,
+        keystore,
     )?;
 
     let result = tnc.start().await;

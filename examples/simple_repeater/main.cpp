@@ -92,12 +92,17 @@ protected:
       if (!_prefs.log_rx) return;
       CommonCLI* cli = getCLI();
       Serial.printf("%lu", rtc_clock.getCurrentTime());
+
       // For some reason the STMicro chokes on the below...
-      // Something about printing the rssi and snr?
-      Serial.printf(",RXLOG,0.0,0.0,");
+      // Something about printing the floating-point values?
+      int rssi_i = rssi;
+      int snr_i = snr;
+      Serial.printf(",RXLOG,%d,%d,", rssi, snr);
       // Serial.printf(",RXLOG,%.2f,%.2f,", rssi, snr);
+
       mesh::Utils::printHex(Serial, raw, len);
       Serial.println();
+
     } else if (cli_mode == CLIMode::KISS) {
       uint8_t kiss_rx[CMD_BUF_LEN_MAX];
       // begin response

@@ -4,6 +4,7 @@ use log::{debug, error, info, trace, warn};
 use tokio_serial::{self, SerialPort, SerialPortBuilderExt, SerialStream};
 use tokio_util::{bytes::{Bytes, BytesMut}, codec::{Decoder, Encoder}};
 use std::{fmt::Display, io, sync::{Arc, atomic::Ordering}, time::Duration};
+use meshcore::{identity::Keystore, packet::Packet};
 
 use atomic_enum::atomic_enum;
 
@@ -12,7 +13,7 @@ struct MeshRawPacket {
     snr: Option<f32>,
     port: Option<i8>,
 
-    contents: Bytes
+    contents: Packet
 }
 
 #[atomic_enum]
@@ -160,10 +161,11 @@ pub struct MeshTNC {
     pub sf: u8,
     pub cr: u8,
     pub sb: String,
+    pub keystore: Keystore
 }
 
 impl MeshTNC {
-    pub fn new(port: String, freq: f32, bw: f32, sf: u8, cr: u8, sb: String) -> color_eyre::eyre::Result<MeshTNC> {
+    pub fn new(port: String, freq: f32, bw: f32, sf: u8, cr: u8, sb: String, keystore: Keystore) -> color_eyre::eyre::Result<MeshTNC> {
 
         // Attempt to open the port
         let mut port = tokio_serial::new(port, 115_200)
@@ -187,6 +189,7 @@ impl MeshTNC {
             sf,
             cr,
             sb,
+            keystore,
         })
     }
 
@@ -260,6 +263,7 @@ impl MeshTNC {
                         local_state.store(MeshTncState::Idle, Ordering::Relaxed);
                         debug!("Moved into idle state");
                         info!("Radio ready!");
+                        println!(" ROUTE T | v1 | Transp Fl. |     Route Summary    | I | Pkt. Type | Summary....");
                     } else if line.contains("Error") {
                         // This error can't be helped by us, so kick it back to the user
                         // with a hopefully helpful error
@@ -283,12 +287,15 @@ impl MeshTNC {
 
                             if let Ok(data) = data {
                                 debug!("Got packet: {}", hex::encode_upper(&data));
-                                let packet = MeshRawPacket {
+                                let mut packet = MeshRawPacket {
                                     rssi,
                                     snr,
                                     port: None,
-                                    contents: Bytes::copy_from_slice(&data)
+                                    contents: Packet::from(Bytes::copy_from_slice(&data))
                                 };
+                                packet.contents.try_decrypt(&self.keystore);
+                                println!("{}", packet.contents);
+
                             } else if let Err(e) = data {
                                 debug!("Got RXLOG packet with invalid HEX: \"{}\": {}", components[4], e);
                             }

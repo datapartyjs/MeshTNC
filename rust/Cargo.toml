@@ -20,5 +20,6 @@ log = "0.4.17"
 futures = "0.3"
 atomic_enum = "0.3.0"
 hex = "0.4"
+toml = "0.9.8"
 
-meshcore = { path = "../../meshcore" }
+MeshCore = { version = "*" }
