@@ -1,6 +1,12 @@
 #include "KISS.h"
 
+// https://www.ax25.net/kiss.aspx
 // https://en.wikipedia.org/wiki/KISS_(amateur_radio_protocol)
+
+void KISSModem::reset() { 
+  memset(_cmd, 0, sizeof(_cmd));
+  _len = 0;
+}
 
 uint16_t KISSModem::encodeKISSFrame(
   const KISSCmd cmd, 
@@ -104,7 +110,6 @@ void KISSModem::parseSerialKISS() {
   }
 }
 
-// https://www.ax25.net/kiss.aspx
 void KISSModem::handleKISSCommand(
   uint32_t sender_timestamp,
   const char* kiss_data,
@@ -135,17 +140,51 @@ void KISSModem::handleKISSCommand(
   // this KISS data is from the host to our KISS port number
   if (kiss_port == _port) {
     switch (kiss_cmd) {
-      case KISSCmd::TxDelay:
-        // TX delay is specified in 10ms units
-        if (kiss_data_len > 0) _txdelay = atoi(&kiss_data[0]) * 10;
+      case KISSCmd::TxDelay: {
+          // TX delay is specified in 10ms units
+          if (kiss_data_len > 0) _txdelay = atoi(&kiss_data[0]) * 10;
+        }
         break;
-      case KISSCmd::Data:
-        if (kiss_data_len == 0) break;
-        const uint8_t* tx_buf = reinterpret_cast<const uint8_t*>(kiss_data);
-        mesh::Packet* pkt = _mesh->obtainNewPacket();
-        pkt->readFrom(tx_buf, kiss_data_len);
-        _mesh->sendPacket(pkt, 1, _txdelay);
+      case KISSCmd::Data: {
+          if (kiss_data_len == 1) break; // only got cmd byte, no data to send
+          const uint8_t* tx_buf = reinterpret_cast<const uint8_t*>(kiss_data);
+          mesh::Packet* pkt = _dispatcher->obtainNewPacket();
+          pkt->readFrom(tx_buf, kiss_data_len);
+          _dispatcher->sendPacket(pkt, 1, _txdelay);
+        }
+        break;
+      case KISSCmd::Vendor: {
+          if (kiss_data_len == 1) break; // no vendor command provided
+          kiss_data++;
+          const uint16_t vendor_data_len = kiss_data_len - 1;
+          handleVendorCommand(sender_timestamp, kiss_data, vendor_data_len);
+        }
         break;
     }
+  }
+}
+
+void KISSModem::handleVendorCommand(
+  uint32_t sender_timestamp,
+  const char* vendor_data,
+  const uint16_t len
+){
+  const uint8_t vend_cmd = static_cast<uint8_t>(vendor_data[0]);
+
+  const uint16_t vendor_data_len = len - 1;
+  vendor_data++;
+
+  uint8_t response[CMD_BUF_LEN_MAX];
+
+  switch (vend_cmd) {
+  case KISSVendorCmd::GetRadioStats:
+    //RadioStats stats {};
+    break;
+  
+  default:
+    uint8_t error[1] = {0xFF};
+    uint16_t len = encodeKISSFrame(KISSCmd::Vendor, error, 1, response, sizeof(response));
+    Serial.write(response, len);
+    break;
   }
 }
