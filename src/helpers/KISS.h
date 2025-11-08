@@ -38,13 +38,12 @@ struct RadioStats {
   uint8_t noise;
   uint32_t rx_count;
   uint32_t tx_count;
-  uint32_t rx_airtime;
-  uint32_t tx_airtime;
+  unsigned long tx_airtime;
   uint32_t uptime;
 };
 
 struct SignalReport {
-  long long unsigned int timestamp;
+  unsigned long long timestamp;
   uint8_t rssi;
   int8_t snr;
   uint16_t pkt_len;
@@ -63,7 +62,9 @@ class KISSModem {
   void handleVendorCommand(uint32_t sender_timestamp, const char* vendor_data, uint16_t len);
 
   public:
-    KISSModem(CLIMode* cli_mode, mesh::Dispatcher* dispatcher) : _cli_mode(cli_mode), _dispatcher(dispatcher) {
+    KISSModem(CLIMode* cli_mode, mesh::Dispatcher* dispatcher) 
+      : _cli_mode(cli_mode), _dispatcher(dispatcher)
+    {
       _len = 0;
       _esc = false;
       _txdelay = 0;

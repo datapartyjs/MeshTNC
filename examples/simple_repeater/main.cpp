@@ -125,11 +125,10 @@ protected:
 
 public:
   MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc)
-     : mesh::Dispatcher(radio, ms, *new StaticPoolPacketManager(32)), _cli(board, rtc, &_prefs, this, this)
+    : mesh::Dispatcher(radio, ms, *new StaticPoolPacketManager(32)), _cli(board, rtc, &_prefs, this, this)
   {
     set_radio_at = revert_radio_at = 0;
     _logging = false;
-
 
     // defaults
     memset(&_prefs, 0, sizeof(_prefs));

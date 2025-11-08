@@ -177,14 +177,32 @@ void KISSModem::handleVendorCommand(
   uint8_t response[CMD_BUF_LEN_MAX];
 
   switch (vend_cmd) {
-  case KISSVendorCmd::GetRadioStats:
-    //RadioStats stats {};
+  case KISSVendorCmd::GetRadioStats: {
+      RadioStats stats {
+        _dispatcher->getRadio()->getNoiseFloor(),
+        _dispatcher->getNumRecvDirect(),
+        _dispatcher->getNumSentDirect(),
+        _dispatcher->getTotalAirTime(),
+        _dispatcher->getSysUptime()
+      };
+      uint8_t* raw_stats = reinterpret_cast<uint8_t*>(&stats);
+      uint16_t data_len = sizeof(stats) + 1; // larger for vendor cmd prefix
+      uint8_t data[data_len] = {KISSVendorCmd::GetRadioStats};
+      memcpy(&data[1], raw_stats, sizeof(stats));
+      uint16_t len = encodeKISSFrame(
+        KISSCmd::Vendor, data, data_len, response, sizeof(response)
+      );
+      Serial.write(response, len);
+    }
     break;
   
-  default:
-    uint8_t error[1] = {0xFF};
-    uint16_t len = encodeKISSFrame(KISSCmd::Vendor, error, 1, response, sizeof(response));
-    Serial.write(response, len);
+  default: {
+      uint8_t error[1] = {0xFF};
+      uint16_t len = encodeKISSFrame(
+        KISSCmd::Vendor, error, 1, response, sizeof(response)
+      );
+      Serial.write(response, len);
+    }
     break;
   }
 }
