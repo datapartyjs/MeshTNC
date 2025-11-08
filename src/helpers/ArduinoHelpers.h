@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Mesh.h>
+#include <Dispatcher.h>
 #include <Arduino.h>
 
 class VolatileRTCClock : public mesh::RTCClock {

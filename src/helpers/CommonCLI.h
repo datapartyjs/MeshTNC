@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Mesh.h>
+#include <Dispatcher.h>
 #include "KISS.h"
 
 #if defined(ESP32) || defined(RP2040_PLATFORM)
@@ -53,7 +53,7 @@ public:
 class CommonCLI {
   mesh::RTCClock* _rtc;
   NodePrefs* _prefs;
-  mesh::Mesh* _mesh;
+  mesh::Dispatcher* _dispatcher;
   CommonCLICallbacks* _callbacks;
   mesh::MainBoard* _board;
   CLIMode _cli_mode = CLIMode::CLI;
@@ -68,8 +68,8 @@ class CommonCLI {
   void handleCLICommand(uint32_t sender_timestamp, const char* command, char* resp);
 
 public:
-  CommonCLI(mesh::MainBoard& board, mesh::RTCClock& rtc, NodePrefs* prefs, CommonCLICallbacks* callbacks, mesh::Mesh* mesh)
-      : _board(&board), _rtc(&rtc), _prefs(prefs), _callbacks(callbacks), _mesh(mesh), _kiss(&_cli_mode, mesh) {
+  CommonCLI(mesh::MainBoard& board, mesh::RTCClock& rtc, NodePrefs* prefs, CommonCLICallbacks* callbacks, mesh::Dispatcher* dispatcher)
+      : _board(&board), _rtc(&rtc), _prefs(prefs), _callbacks(callbacks), _dispatcher(dispatcher), _kiss(&_cli_mode, dispatcher) {
         _cmd[0] = 0;
       }
 

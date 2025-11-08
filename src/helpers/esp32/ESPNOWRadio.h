@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Mesh.h>
+#include <Dispatcher.h>
 
 class ESPNOWRadio : public mesh::Radio {
 protected:

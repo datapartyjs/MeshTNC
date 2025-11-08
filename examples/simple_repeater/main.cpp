@@ -1,6 +1,6 @@
 #include <Arduino.h>   // needed for PlatformIO
 #include <Dispatcher.h>
-#include <Mesh.h>
+#include <MeshCore.h>
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   #include <InternalFileSystem.h>
@@ -67,8 +67,9 @@
 #define CLI_REPLY_DELAY_MILLIS  600
 
 
-class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
-
+class MyMesh : public mesh::Dispatcher, public CommonCLICallbacks {
+  mesh::RTCClock* _rtc;
+  mesh::RNG* _rng;
   FILESYSTEM* _fs;
   CommonCLI _cli;
   bool _logging;
@@ -118,10 +119,13 @@ protected:
     return ((int)_prefs.agc_reset_interval) * 4000;   // milliseconds
   }
 
+  mesh::DispatcherAction onRecvPacket(mesh::Packet* pkt) override {
+    return 0;
+  }
 
 public:
   MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc)
-     : mesh::Mesh(radio, ms, *new StaticPoolPacketManager(32)), _cli(board, rtc, &_prefs, this, this)
+     : mesh::Dispatcher(radio, ms, *new StaticPoolPacketManager(32)), _cli(board, rtc, &_prefs, this, this)
   {
     set_radio_at = revert_radio_at = 0;
     _logging = false;
@@ -146,7 +150,7 @@ public:
   }
 
   void begin(FILESYSTEM* fs) {
-    mesh::Mesh::begin();
+    Dispatcher::begin();
     _fs = fs;
     _cli.loadPrefs(_fs);
 
@@ -154,6 +158,8 @@ public:
     radio_set_tx_power(_prefs.tx_power_dbm);
   }
 
+  mesh::RNG* getRNG() const { return _rng; }
+  mesh::RTCClock* getRTCClock() const { return _rtc; }
   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
   const char* getBuildDate() override { return FIRMWARE_BUILD_DATE; }
   const char* getNodeName() { return _prefs.node_name; }

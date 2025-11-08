@@ -169,7 +169,7 @@ void CommonCLI::handleCLICommand(
   } else if (memcmp(command, "txraw ", 6) == 0) {
     const char* tx_hex = &command[6];
 
-    mesh::Packet* pkt = _mesh->obtainNewPacket();
+    mesh::Packet* pkt = _dispatcher->obtainNewPacket();
     uint8_t tx_buf[MAX_PACKET_PAYLOAD];
     uint8_t len_buf = 0;
     char tmp[3];
@@ -184,7 +184,7 @@ void CommonCLI::handleCLICommand(
     }
     pkt->readFrom(tx_buf, len_buf);
     mesh::Utils::printHex(Serial, tx_buf, len_buf);
-    _mesh->sendPacket(pkt, 1);
+    _dispatcher->sendPacket(pkt, 1);
     strcpy(resp, "OK");
   } else if (memcmp(command, "clock sync", 10) == 0) {
     uint32_t curr = getRTCClock()->getCurrentTime();
