@@ -2,9 +2,18 @@ use color_eyre::eyre::eyre;
 use futures::{SinkExt, StreamExt, lock::Mutex};
 use log::{debug, error, info, trace, warn};
 use tokio_serial::{self, SerialPort, SerialPortBuilderExt, SerialStream};
-use tokio_util::{bytes::BytesMut, codec::{Decoder, Encoder}};
-use std::{io, sync::{Arc, atomic::Ordering}, time::Duration};
+use tokio_util::{bytes::{Bytes, BytesMut}, codec::{Decoder, Encoder}};
+use std::{fmt::Display, io, sync::{Arc, atomic::Ordering}, time::Duration};
+
 use atomic_enum::atomic_enum;
+
+struct MeshRawPacket {
+    rssi: Option<f32>,
+    snr: Option<f32>,
+    port: Option<i8>,
+
+    contents: Bytes
+}
 
 #[atomic_enum]
 #[derive(PartialEq)]
@@ -14,6 +23,18 @@ enum MeshTncState {
     RadioSet = 2,
     Idle     = 3,
     KISS     = 4,
+}
+
+impl Display for MeshTncState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MeshTncState::Unknown =>  write!(f, "Unknown"),
+            MeshTncState::Starting => write!(f, "Starting"),
+            MeshTncState::RadioSet => write!(f, "RadioSet"),
+            MeshTncState::Idle     => write!(f, "Idle"),
+            MeshTncState::KISS     => write!(f, "KISS"),
+        }
+    }
 }
 
 struct KissCodec {
@@ -30,7 +51,7 @@ impl Default for KissCodec {
 
 impl KissCodec {
     fn decode_ascii(&mut self, src: &mut BytesMut) -> Result<Option<Vec<u8>>, io::Error> {
-        trace!("In decode_ascii: {}", str::from_utf8(src.as_ref()).unwrap());
+        // trace!("In decode_ascii: {}", str::from_utf8(src.as_ref()).unwrap());
         let newline = src.as_ref().iter().position(|b| *b == b'\n');
         if let Some(n) = newline {
             let line = src.split_to(n + 1);
@@ -201,9 +222,12 @@ impl MeshTNC {
 
             // First match just KISS because the rest are all ASCII
             let state = local_state.load(Ordering::Relaxed);
+
             if state == MeshTncState::KISS {
                 // Just handle the packet
-            } else {
+            }
+            
+            else {
                 // Convert it to ascii and trim any whitespace
                 let line = String::from_utf8(line)?;
 
@@ -233,7 +257,7 @@ impl MeshTNC {
                     // or an "Error".  In the case of "Error", the radio didn't
                     if line.contains("OK") {
                         // Move onto the "idle" state.
-                        local_state.store(MeshTncState::RadioSet, Ordering::Relaxed);
+                        local_state.store(MeshTncState::Idle, Ordering::Relaxed);
                         debug!("Moved into idle state");
                         info!("Radio ready!");
                     } else if line.contains("Error") {
@@ -244,8 +268,35 @@ impl MeshTNC {
                     }
                 }
                 MeshTncState::Idle => {
-                    // In the idle state, the TNC will send us radio log packets.  We'll just
-                    // drop them.
+                    // In the idle state, the TNC will send us radio log packets.
+                    
+                    // If the user didn't request KISS mode (which allows transmit, but no RSSI/SNR)
+                    // then we're kinda done, and we can start sending packets into the channel
+                    let components: Vec<&str> = line.trim_ascii().split(",").collect();
+                    if components[1] == "RXLOG" {
+                        if components.len() == 5 {
+                            let _timestamp: Result<u64, _> = components[0].parse();
+                            // Skipping "RXLOG"
+                            let rssi: Option<f32> = components[2].parse().ok();
+                            let snr: Option<f32> = components[3].parse().ok();
+                            let data: Result<Vec<u8>, _> = hex::decode(components[4]);
+
+                            if let Ok(data) = data {
+                                debug!("Got packet: {}", hex::encode_upper(&data));
+                                let packet = MeshRawPacket {
+                                    rssi,
+                                    snr,
+                                    port: None,
+                                    contents: Bytes::copy_from_slice(&data)
+                                };
+                            } else if let Err(e) = data {
+                                debug!("Got RXLOG packet with invalid HEX: \"{}\": {}", components[4], e);
+                            }
+
+                            continue;
+                        }
+                        debug!("Got a potentially mal-formed RXLOG packet: \n{}", line);
+                    }
                 },
                 // We'll never get here, because we handle it up there ^
                 MeshTncState::KISS => break,

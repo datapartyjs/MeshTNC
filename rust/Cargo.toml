@@ -19,3 +19,6 @@ clap = { version = "4.1.7", features = ["derive"] }
 log = "0.4.17"
 futures = "0.3"
 atomic_enum = "0.3.0"
+hex = "0.4"
+
+meshcore = { path = "../../meshcore" }
