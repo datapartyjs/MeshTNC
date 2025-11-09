@@ -1,20 +1,24 @@
 [package]
 name = "meshtnc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Will Dillon <crates@houedillon.com>"]
 homepage = "https://github.com/datapartyjs/MeshTNC"
 repository = "https://github.com/datapartyjs/MeshTNC"
 license = "MIT"
 description = "Host tool for interacting with MeshTNC hardware"
+readme = "readme.md"
+
+[[bin]]
+name = "meshtnc"
 default-run = "meshtnc"
 
 [dependencies]
 tokio = { version = "^1.8", features = ["full"]}
-tokio-util = {version = "*", features = ["codec"]}
+tokio-util = {version = "0.7", features = ["codec"]}
 tokio-serial = "5.4.1"
-color-eyre = "*"
-pretty_env_logger = "*"
+color-eyre = "0.6"
+pretty_env_logger = "0.5"
 clap = { version = "4.1.7", features = ["derive"] }
 log = "0.4.17"
 futures = "0.3"
@@ -25,4 +29,4 @@ r-extcap = "0.2.5"
 pcap-file = "2.0.0"
 lazy_static = "1.4.0"
 
-MeshCore = "*"
+MeshCore = "0.0"

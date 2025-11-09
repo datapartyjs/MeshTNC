@@ -2,21 +2,13 @@ use color_eyre::eyre::eyre;
 use futures::{SinkExt, StreamExt, lock::Mutex};
 use log::{debug, error, info, trace, warn};
 use tokio_serial::{self, SerialPort, SerialPortBuilderExt, SerialStream};
-use tokio_util::{bytes::{self, Bytes, BytesMut}, codec::{Decoder, Encoder}};
+use tokio_util::{bytes::{Bytes, BytesMut}, codec::{Decoder, Encoder}};
 use std::{fmt::Display, io::{self, stdout}, sync::{Arc, atomic::Ordering}, time::{Duration, SystemTime, UNIX_EPOCH}};
 use meshcore::{identity::Keystore, packet::Packet};
 use pcap_file::pcap::{PcapPacket, PcapWriter};
 use std::io::Write;
 
 use atomic_enum::atomic_enum;
-
-struct MeshRawPacket {
-    rssi: Option<f32>,
-    snr: Option<f32>,
-    port: Option<i8>,
-
-    contents: Packet
-}
 
 #[atomic_enum]
 #[derive(PartialEq)]
@@ -286,8 +278,9 @@ impl MeshTNC {
                         if components.len() == 5 {
                             let _timestamp: Result<u64, _> = components[0].parse();
                             // Skipping "RXLOG"
-                            let rssi: Option<f32> = components[2].parse().ok();
-                            let snr: Option<f32> = components[3].parse().ok();
+                            // and the RSSI and SNR for now
+                            let _: Option<f32> = components[2].parse().ok();
+                            let _: Option<f32> = components[3].parse().ok();
                             let data: Result<Vec<u8>, _> = hex::decode(components[4]);
 
                             if let Ok(data) = data {
@@ -299,14 +292,9 @@ impl MeshTNC {
                                     Self::write_packet_pcap(&bytes, pcap_writer).await?;
                                 }
 
-                                let mut packet = MeshRawPacket {
-                                    rssi,
-                                    snr,
-                                    port: None,
-                                    contents: Packet::from(bytes)
-                                };
-                                packet.contents.try_decrypt(&self.keystore);
-                                println!("{}", packet.contents);
+                                let mut packet = Packet::from(bytes);
+                                packet.try_decrypt(&self.keystore);
+                                println!("{}", packet);
 
                             } else if let Err(e) = data {
                                 debug!("Got RXLOG packet with invalid HEX: \"{}\": {}", components[4], e);
