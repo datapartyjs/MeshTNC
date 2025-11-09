@@ -1,17 +1,17 @@
 use std::path::PathBuf;
 use clap::Parser;
 use meshcore::identity::KeystoreInput;
+use std::fs::File;
 use tokio_serial::available_ports;
 use color_eyre::eyre::Result;
 use pretty_env_logger;
 use log::debug;
 
-use r_extcap::{cargo_metadata, ExtcapArgs, ExtcapStep, interface::*, controls::*, config::*};
-use pcap_file::pcap::{PcapHeader, PcapPacket, PcapWriter};
+use r_extcap::{ExtcapArgs, ExtcapError, ExtcapStep, config::*, interface::*};
+use pcap_file::pcap::{PcapHeader, PcapWriter};
 use lazy_static::lazy_static;
 
 use meshtnc::MeshTNC;
-use tokio_util::bytes::Bytes;
 
 #[derive(Debug, Parser)]
 struct AppArgs {
@@ -169,7 +169,18 @@ async fn main() -> Result<()> {
     )?;
 
     // Process the extcap arguments
-    Ok(match args.extcap.run()? {
+    let extcap_result = args.extcap.run();
+    
+    let extcap_result = match extcap_result {
+        // If we don't have an Extcap input, just ignore it, and run in local dissection mode.
+        Err(ExtcapError::NotExtcapInput) => {
+            tnc.start::<File>(None).await?;
+            return Ok(());
+        },
+        _ => extcap_result
+    };
+    
+    match extcap_result? {
         ExtcapStep::Interfaces(interfaces_step) => {
             interfaces_step.list_interfaces(
                 &METADATA,
@@ -214,5 +225,7 @@ async fn main() -> Result<()> {
                 return Err(e);
             }            
         }
-    })
+    }
+
+    Ok(())
 }
