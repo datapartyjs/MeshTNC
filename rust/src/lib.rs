@@ -2,9 +2,11 @@ use color_eyre::eyre::eyre;
 use futures::{SinkExt, StreamExt, lock::Mutex};
 use log::{debug, error, info, trace, warn};
 use tokio_serial::{self, SerialPort, SerialPortBuilderExt, SerialStream};
-use tokio_util::{bytes::{Bytes, BytesMut}, codec::{Decoder, Encoder}};
-use std::{fmt::Display, io, sync::{Arc, atomic::Ordering}, time::Duration};
+use tokio_util::{bytes::{self, Bytes, BytesMut}, codec::{Decoder, Encoder}};
+use std::{fmt::Display, io::{self, stdout}, sync::{Arc, atomic::Ordering}, time::{Duration, SystemTime, UNIX_EPOCH}};
 use meshcore::{identity::Keystore, packet::Packet};
+use pcap_file::pcap::{PcapPacket, PcapWriter};
+use std::io::Write;
 
 use atomic_enum::atomic_enum;
 
@@ -153,7 +155,6 @@ impl Encoder<Vec<u8>> for KissCodec {
         }
     }
 }
-
 pub struct MeshTNC {
     pub port: Mutex<SerialStream>,
     pub freq: f32,
@@ -193,7 +194,8 @@ impl MeshTNC {
         })
     }
 
-    pub async fn start(&mut self) -> color_eyre::eyre::Result<()> {
+    pub async fn start<W>(&mut self, mut pcap_writer: Option<PcapWriter<W>>) -> color_eyre::eyre::Result<()>
+        where W: Write {
         // get protected access to the port
         let port = self.port.get_mut();
 
@@ -263,7 +265,10 @@ impl MeshTNC {
                         local_state.store(MeshTncState::Idle, Ordering::Relaxed);
                         debug!("Moved into idle state");
                         info!("Radio ready!");
-                        println!(" ROUTE T | v1 | Transp Fl. |     Route Summary    | I | Pkt. Type | Summary....");
+
+                        if pcap_writer.is_none() {
+                            println!(" ROUTE T | v1 | Transp Fl. |     Route Summary    | I | Pkt. Type | Summary....");
+                        }
                     } else if line.contains("Error") {
                         // This error can't be helped by us, so kick it back to the user
                         // with a hopefully helpful error
@@ -287,11 +292,18 @@ impl MeshTNC {
 
                             if let Ok(data) = data {
                                 debug!("Got packet: {}", hex::encode_upper(&data));
+
+                                let bytes = Bytes::copy_from_slice(&data);
+
+                                if let Some(ref mut pcap_writer) = pcap_writer {
+                                    Self::write_packet_pcap(&bytes, pcap_writer).await?;
+                                }
+
                                 let mut packet = MeshRawPacket {
                                     rssi,
                                     snr,
                                     port: None,
-                                    contents: Packet::from(Bytes::copy_from_slice(&data))
+                                    contents: Packet::from(bytes)
                                 };
                                 packet.contents.try_decrypt(&self.keystore);
                                 println!("{}", packet.contents);
@@ -317,4 +329,19 @@ impl MeshTNC {
 
         Ok(())
    }
+
+    pub async fn write_packet_pcap<W>(packet: &Bytes, pcap_writer: &mut PcapWriter<W>) -> color_eyre::eyre::Result<()>
+        where W: Write {
+        pcap_writer.write_packet(&PcapPacket::new(
+            SystemTime::now().duration_since(UNIX_EPOCH)?,
+            (packet.len() + 14 + 20) as u32,
+            packet,
+        ))?;
+
+        // Is this actually necessary?
+        stdout().flush()?;
+
+        Ok(())
+    }
+
 }
