@@ -155,6 +155,8 @@ async fn main() -> Result<()> {
             _ => println!("Found serial port: {}", port.port_name),
             }
         }
+
+        return Ok(());
     }
 
     // Attempt to create and open the serial device and start the party
