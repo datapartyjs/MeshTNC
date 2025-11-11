@@ -191,14 +191,19 @@ impl MeshTNC {
         // get protected access to the port
         let port = self.port.get_mut();
 
-        // This doesn't work on the Seeed Studio LoRa-E5 Dev Board
-        // because the rts pin is capactively-coupled to reset, and the
-        // capacitor is way too small.  So, the reset pulse is too small
-        // and too short to actually work.
         info!("Attempting to reboot TNC");
-        port.write_request_to_send(false)?;
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        port.write_request_to_send(true)?;
+
+        // Some boards let you reboot the device by toggling the RTS
+        // line.  Some do not.  If we assume the device is in some
+        // unknown state, we want to ensure it's back into a known one.
+        // for us to do that, we should assume we're in KISS mode, and
+        // that we don't have a way to reboot it using RTS.  Therefore,
+        // we'll issue a KISS escape sequence first, then a CLI reboot
+        // command.
+        trace!("Attempting to exit KISS mode.");
+        port.write(&[0xC0, 0xFF, 0xC0])?;
+
+        // Now we should be in CLI mode, so we can use ascii from now on.
 
         // Create the framed reader
         let codec = KissCodec::default();
@@ -208,6 +213,9 @@ impl MeshTNC {
         // Create the reader codec framing system
         let framed = codec.framed(port);
         let (mut writer, mut reader) = framed.split();
+
+        trace!("Attempting to reboot via CLI.");
+        writer.send("\nreboot\n".as_bytes().to_vec()).await?;
 
         // Handle incoming bytes from the interface
         while let Some(line_result) = reader.next().await {
