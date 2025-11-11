@@ -94,9 +94,14 @@ protected:
       Serial.printf("%lu", rtc_clock.getCurrentTime());
 
 #if defined(STM32_PLATFORM)
-      // For some reason the STMicro chokes on the below...
-      // Something about printing the floating-point values?
-      Serial.printf(",RXLOG,0.0,0.0,");
+      // For some reason the STMicro chokes on printf-ing
+      // floats and doubles.  So, we need to turn them into
+      // integers ourselves and print them out.
+      int rssi_int    = rssi;
+      int rssi_hundts = (rssi - rssi_int) * 100;
+      int snr_int     = snr;
+      int snr_hundths = (snr - snr_int) * 100;
+      Serial.printf(",RXLOG,%i.%02i,%i.%02i,", rssi_int, rssi_hundts, snr_int, snr_hundths);
 #else
       Serial.printf(",RXLOG,%.2f,%.2f,", rssi, snr);
 #endif
