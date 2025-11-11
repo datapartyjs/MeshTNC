@@ -92,7 +92,7 @@ protected:
       if (!_prefs.log_rx) return;
       CommonCLI* cli = getCLI();
       Serial.printf("%lu", rtc_clock.getCurrentTime());
-      Serial.printf(",RXLOG,%d,%d,", (int)rssi, (int)snr);
+      Serial.printf(",RXLOG,%d.0,%d.0,", (int)rssi, (int)snr);
       mesh::Utils::printHex(Serial, raw, len);
       Serial.println();
     } else if (cli_mode == CLIMode::KISS) {
