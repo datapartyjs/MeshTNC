@@ -10,3 +10,4 @@ out/
 .vscode/settings.json
 .vscode/extensions.json
 .idea/
+tests/build*
