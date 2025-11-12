@@ -171,6 +171,8 @@ void KISSModem::handleVendorCommand(
 ){
   const uint8_t vend_cmd = static_cast<uint8_t>(vendor_data[0]);
 
+  // vendor cmd is one byte, now that we have it stored above,
+  // decrement length of data and increment data pointer
   const uint16_t vendor_data_len = len - 1;
   vendor_data++;
 
@@ -186,8 +188,8 @@ void KISSModem::handleVendorCommand(
         _dispatcher->getSysUptime()
       };
       uint8_t* raw_stats = reinterpret_cast<uint8_t*>(&stats);
-      uint16_t data_len = sizeof(stats) + 1; // larger for vendor cmd prefix
-      uint8_t data[data_len] = {KISSVendorCmd::GetRadioStats};
+      uint16_t data_len = sizeof(stats);
+      uint8_t data[data_len++] = {KISSVendorCmd::GetRadioStats};
       memcpy(&data[1], raw_stats, sizeof(stats));
       uint16_t len = encodeKISSFrame(
         KISSCmd::Vendor, data, data_len, response, sizeof(response)
