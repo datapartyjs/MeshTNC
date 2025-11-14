@@ -29,11 +29,19 @@ enum KISSCmd: uint8_t {
   Return = 0xF
 };
 
+enum KISSPort: uint8_t {
+  LoRa_Port = 0x0,
+  GPS_Port = 0x1,
+  BLE_Port = 0x2,
+  WiFi_Port = 0x3,
+  None = 0xff
+};
+
 class KISSModem {
   uint16_t _len;
   bool _esc;
   uint32_t _txdelay;
-  uint8_t _port;
+  KISSPort _port;
   char _cmd[CMD_BUF_LEN_MAX];
 
   mesh::Mesh* _mesh;
@@ -45,14 +53,15 @@ class KISSModem {
         _esc = false;
         _txdelay = 0;
     }
-    uint8_t getPort() { return _port; };
-    void setPort(uint8_t port) { _port = port; };
+    KISSPort getPort() { return _port; };
+    void setPort(KISSPort port) { _port = port; };
     void reset() {_len = 0; };
     void parseSerialKISS();
     void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, uint16_t len);
     uint16_t encodeKISSFrame(
       const KISSCmd cmd, 
       const uint8_t* data, const int data_len, 
-      uint8_t* kiss_buf, const int kiss_buf_size
+      uint8_t* kiss_buf, const int kiss_buf_size,
+      const KISSPort port = KISSPort::None
     ); // returns the size/length of the encoded data/KISS frame
 };

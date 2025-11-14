@@ -33,6 +33,13 @@ struct NodePrefs {  // persisted to file
     bool log_rx;
     // KISS Config
     uint8_t kiss_port;
+
+    // BLE Settings
+    bool ble_enabled;         // false
+    bool ble_active_scan;     // false
+    bool ble_filter_dups;     // true
+    uint16_t ble_max_results; // 100
+    uint32_t ble_scantime;    // 10s in milliseconds
 };
 
 class CommonCLICallbacks {
@@ -48,6 +55,7 @@ public:
   virtual void clearStats() = 0;
   virtual void applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word, int timeout_mins) = 0;
   virtual void applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) = 0;
+  virtual void applyBLEParams(bool enabled, bool active, bool filter_dups, uint16_t max_results, uint32_t scantime) = 0;
 };
 
 class CommonCLI {

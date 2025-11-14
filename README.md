@@ -54,8 +54,18 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
  * `set kiss port <port>` - Set the KISS device port
  * `set radio <freq>,<bw>,<sf>,<coding-rate>,<syncword>` - Configure the radio
  * `serial mode kiss` - Switch to KISS mode
- * `rxlog on`
-   * Output format: ` [timestamp],[type=RXLOG],[rssi],[snr],[hex...]\n` 
+ * `rxlog on` - enable LoRa packet logging
+   * Output format: ` [timestamp],[type=RXLOG],[rssi],[snr],[hex...]\n`
+ * `rxlog off` - disable LoRa packet logging
+ * `rxlog ble on` - enable BLE packet logging
+   * Output format: ` [timestamp],[type=RXBLE],[rssi],[snr],[MAC - 6 octets][hex...]\n`
+ * `rxlog ble off` - enable BLE packet logging
+ * `get ble` - dump BLE settings
+ * `set ble <active_scan>,<filter_dups>,<max_results>,<scantime>`
+   * `active_scan` - `on` / `off` - Whether to use active scanning Defaults to `off`
+   * `filter_dups` - `on` / `off` - Whether to filter duplicates. Defaults to `on`
+   * `max_resulrs` - Number maximum results per scan
+   * `scantime` - Number of milliseconds to scan
  * `set`/`get txpower` - MeshCore's `set`/`get tx` has been renamed appropriately
 
  <details>

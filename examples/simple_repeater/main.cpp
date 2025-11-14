@@ -55,6 +55,12 @@
 
 #define PACKET_LOG_FILE  "/packet_log"
 
+#ifdef ENABLE_BLE
+  #define BLE_SCAN_TIME_MS (30 * 10000)
+  #define BLE_DEVICE_NAME "MeshTNC"
+  #include <NimBLEDevice.h>
+#endif
+
 /* ------------------------------ Code -------------------------------- */
 
 #define REQ_TYPE_GET_STATUS          0x01   // same as _GET_STATS
@@ -80,6 +86,10 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t pending_sf;
   uint8_t pending_cr;
   uint8_t pending_sync_word;
+  uint32_t blePacketCount;
+  uint32_t lastBlePacketsAvailable;
+  NimBLEScan* bleScan;
+  bool bleReported;
 
 protected:
   float getAirtimeBudgetFactor() const override {
@@ -126,6 +136,7 @@ public:
     set_radio_at = revert_radio_at = 0;
     _logging = false;
 
+    bleReported = false;
 
     // defaults
     memset(&_prefs, 0, sizeof(_prefs));
@@ -143,6 +154,11 @@ public:
     _prefs.interference_threshold = 0;  // disabled
     _prefs.sync_word = 0x2B;
     _prefs.log_rx = true;
+    _prefs.ble_enabled = false;
+    _prefs.ble_filter_dups = true;
+    _prefs.ble_active_scan = false;
+    _prefs.ble_max_results = 100;
+    _prefs.ble_scantime = 10 * 1000;
   }
 
   void begin(FILESYSTEM* fs) {
@@ -152,6 +168,42 @@ public:
 
     radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
     radio_set_tx_power(_prefs.tx_power_dbm);
+
+    #ifdef ENABLE_BLE
+    NimBLEDevice::init(std::__cxx11::string(BLE_DEVICE_NAME));
+    this->bleScan = NimBLEDevice::getScan(); // Create the scan object.
+
+    //NimBLEDevice::setDefaultPhy(BLE_GAP_LE_PHY_CODED, BLE_GAP_LE_PHY_ANY_MASK);
+    
+
+    BLEAdvertising* adv = NimBLEDevice::getAdvertising();
+
+    //adv->setMinInterval()
+    adv->setName(std::__cxx11::string(BLE_DEVICE_NAME));
+    adv->start();
+
+    //BLEAdvertisementData advData;
+    //advData.addData();
+    //adv->setAdvertisementData(advData);
+
+    NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
+    NimBLEDevice::startAdvertising();
+/*
+    advData.addData();
+
+    adv->setAdvertisementData()
+    adv->start(10)*/
+
+    if(this->_prefs.ble_enabled){
+      this->applyBLEParams(
+        true,
+        _prefs.ble_active_scan,
+        _prefs.ble_filter_dups,
+        _prefs.ble_max_results,
+        _prefs.ble_scantime
+      );
+    }
+    #endif
   }
 
   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
@@ -195,6 +247,16 @@ public:
 
   void applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) {
     radio_set_params(freq, bw, sf, cr, sync_word);
+  }
+
+
+  void applyBLEParams(bool enabled, bool active, bool filter_dups, uint16_t max_results, uint32_t scantime) {
+    #ifdef ENABLE_BLE
+    this->bleScan->setActiveScan( active );
+    this->bleScan->setMaxResults(max_results);
+    this->bleScan->setDuplicateFilter(filter_dups);
+    this->bleScan->start(scantime, false, true);
+    #endif
   }
 
   void setLoggingOn(bool enable) { _logging = enable; }
@@ -247,6 +309,67 @@ public:
       radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
       MESH_DEBUG_PRINTLN("Radio params restored");
     }
+
+    #ifdef ENABLE_BLE
+
+    if(_prefs.ble_enabled && !bleScan->isScanning() && !bleReported){
+
+      bleReported = true;
+      NimBLEScanResults results = bleScan->getResults();
+
+
+      for(int i=0; i<results.getCount(); i++){
+        const NimBLEAdvertisedDevice* advertisedDevice = results.getDevice(i);
+
+        float rssi = (float) advertisedDevice->getRSSI();
+
+        uint8_t raw[300];
+        uint16_t rawLength = 0;
+
+        const uint8_t* addrBuf = advertisedDevice->getAddress().getVal();
+        raw[0] = addrBuf[5];
+        raw[1] = addrBuf[4];
+        raw[2] = addrBuf[3];
+        raw[3] = addrBuf[2];
+        raw[4] = addrBuf[1];
+        raw[5] = addrBuf[0];
+        rawLength = 6;
+
+        const uint8_t* payloadBuf = advertisedDevice->getPayload().data();
+        uint16_t payloadLength = advertisedDevice->getPayload().size();
+        memcpy(raw+rawLength, payloadBuf, payloadLength);
+        rawLength += payloadLength;
+
+        CLIMode cli_mode = _cli.getCLIMode();
+        if (cli_mode == CLIMode::CLI) {
+
+          CommonCLI* cli = getCLI();
+          Serial.printf("%lu", rtc_clock.getCurrentTime());
+          Serial.printf(",RXBLE,%.2f,%.2f,", rssi, 0.0f);
+          mesh::Utils::printHex(
+            Serial,
+            raw,
+            rawLength
+          );
+          Serial.println();
+
+        } else if (cli_mode == CLIMode::KISS) {
+
+          uint8_t kiss_rx[CMD_BUF_LEN_MAX];
+          KISSModem* kiss = this->getCLI()->getKISSModem();
+          uint16_t kiss_rx_len = kiss->encodeKISSFrame(
+            KISSCmd::Data, raw, rawLength, kiss_rx, sizeof(kiss_rx), KISSPort::BLE_Port
+          );
+          Serial.write(kiss_rx, kiss_rx_len);
+          
+        }
+      }
+
+      bleReported = false;
+      bleScan->start(_prefs.ble_scantime, false, true);
+    }
+
+    #endif
   }
 };
 
