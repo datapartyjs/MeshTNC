@@ -34,6 +34,7 @@ enum KISSPort: uint8_t {
   GPS_Port = 0x1,
   BLE_Port = 0x2,
   WiFi_Port = 0x3,
+  Global_Port = 0xf,
   None = 0xff
 };
 
