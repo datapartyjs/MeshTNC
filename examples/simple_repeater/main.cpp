@@ -86,8 +86,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t pending_sf;
   uint8_t pending_cr;
   uint8_t pending_sync_word;
-  uint32_t blePacketCount;
-  uint32_t lastBlePacketsAvailable;
+  uint32_t blePacketRxCount;
   NimBLEScan* bleScan;
   bool bleReported;
 
@@ -363,6 +362,8 @@ public:
           Serial.write(kiss_rx, kiss_rx_len);
           
         }
+
+        blePacketRxCount++;
       }
 
       bleReported = false;
