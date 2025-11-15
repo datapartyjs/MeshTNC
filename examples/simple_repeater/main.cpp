@@ -110,7 +110,7 @@ protected:
       Serial.println();
     } else if (cli_mode == CLIMode::KISS) {
       uint8_t kiss_rx[CMD_BUF_LEN_MAX];
-      KISSModem* kiss = this->getCLI()->getKISSModem();
+      KISSModem* kiss = getCLI()->getKISSModem();
       uint16_t kiss_rx_len = kiss->encodeKISSFrame(
         KISSCmd::Data, raw, len, kiss_rx, sizeof(kiss_rx)
       );
@@ -141,7 +141,6 @@ public:
 #ifdef ENABLE_BLE
     bleReported = false;
 #endif
-
     // defaults
     memset(&_prefs, 0, sizeof(_prefs));
     _prefs.airtime_factor = 1.0;    // one half
@@ -175,10 +174,10 @@ public:
 
 #ifdef ENABLE_BLE
     NimBLEDevice::init(std::__cxx11::string(BLE_DEVICE_NAME));
-    this->bleScan = NimBLEDevice::getScan(); // Create the scan object.
+    bleScan = NimBLEDevice::getScan(); // Create the scan object.
 
-    if(this->_prefs.ble_enabled){
-      this->applyBLEParams(
+    if(_prefs.ble_enabled){
+      applyBLEParams(
         true,
         _prefs.ble_active_scan,
         _prefs.ble_filter_dups,
@@ -235,10 +234,10 @@ public:
 
   void applyBLEParams(bool enabled, bool active, bool filter_dups, uint16_t max_results, uint32_t scantime) {
 #ifdef ENABLE_BLE
-    this->bleScan->setActiveScan( active );
-    this->bleScan->setMaxResults(max_results);
-    this->bleScan->setDuplicateFilter(filter_dups);
-    this->bleScan->start(scantime, false, true);
+    bleScan->setActiveScan( active );
+    bleScan->setMaxResults(max_results);
+    bleScan->setDuplicateFilter(filter_dups);
+    bleScan->start(scantime, false, true);
 #endif
   }
 
