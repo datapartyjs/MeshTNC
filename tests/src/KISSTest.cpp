@@ -3,7 +3,7 @@
 #include <boost/asio.hpp>
 #include <SerialPort.h>
 
-#define BUILDING_LIBMESHTNC
+#define BUILDING_MESHTNC
 
 #ifdef __linux__
 #define SERIAL_PORT "/dev/ttyACM0"
@@ -20,7 +20,7 @@ using boost::asio::mutable_buffer;
 int main () {
   std::vector<uint8_t> input(4096);
 
-  #if defined(DEBUG) && defined(BOOST_ASIO_HAS_SERIAL_PORT)
+  #if defined(NDEBUG) && defined(BOOST_ASIO_HAS_SERIAL_PORT)
   printf("Boost has serial port!\r\n");
   #endif
 
@@ -33,6 +33,7 @@ int main () {
 
   mutable_buffer rd_buf(buffer(input));
   serial.read(rd_buf);
+
   serial.close();
 
 }

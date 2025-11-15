@@ -4,7 +4,7 @@ include(GenerateExportHeader)
 
 project(MeshTNC_Tests)
 
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 20)
 
 if (MSVC)
     # warning level 4
@@ -16,27 +16,35 @@ endif()
 
 find_package(Boost 1.8.3 REQUIRED)
 
-## libMeshTNC section
-add_library(libMeshTNC SHARED
+## MeshTNC library section
+add_library(
+  MeshTNC SHARED
 	lib/SerialPort.cpp
 	lib/SerialPort.h
 )
 
-GENERATE_EXPORT_HEADER(libMeshTNC
-    BASE_NAME libMeshTNC
-    EXPORT_MACRO_NAME LIBTNC_EXPORTS
-    EXPORT_FILE_NAME lib/libtnc_exports.h
-    STATIC_DEFINE SHARED_EXPORTS_BUILT_AS_STATIC)
+GENERATE_EXPORT_HEADER(
+  MeshTNC
+  BASE_NAME MeshTNC
+  EXPORT_MACRO_NAME MESHTNC_EXPORTS
+  EXPORT_FILE_NAME lib/meshtnc_exports.h
+  STATIC_DEFINE SHARED_EXPORTS_BUILT_AS_STATIC
+)
 
-target_include_directories(libMeshTNC PUBLIC lib/ "${CMAKE_CURRENT_BINARY_DIR}/lib" ${Boost_INCLUDE_DIRS})
+target_include_directories(
+  MeshTNC PUBLIC lib/ "${CMAKE_CURRENT_BINARY_DIR}/lib"
+  ${Boost_INCLUDE_DIRS}
+)
 
-target_link_libraries(libMeshTNC ${Boost_LIBRARIES})
+target_link_libraries(MeshTNC ${Boost_LIBRARIES})
 
 ## Main section
-add_executable(KISSTest
+add_executable(
+  KISSTest
 	src/KISSTest.cpp
 )
 
-target_link_libraries(KISSTest
-	libMeshTNC
+target_link_libraries(
+  KISSTest
+	MeshTNC
 )
