@@ -86,10 +86,11 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t pending_sf;
   uint8_t pending_cr;
   uint8_t pending_sync_word;
+
 #ifdef ENABLE_BLE
-  uint32_t blePacketRxCount;
   NimBLEScan* bleScan;
   bool bleReported;
+  uint32_t blePacketRxCount;
 #endif
 
 protected:
@@ -137,7 +138,9 @@ public:
     set_radio_at = revert_radio_at = 0;
     _logging = false;
 
+#ifdef ENABLE_BLE
     bleReported = false;
+#endif
 
     // defaults
     memset(&_prefs, 0, sizeof(_prefs));
