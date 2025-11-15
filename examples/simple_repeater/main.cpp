@@ -168,30 +168,9 @@ public:
     radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
     radio_set_tx_power(_prefs.tx_power_dbm);
 
-    #ifdef ENABLE_BLE
+#ifdef ENABLE_BLE
     NimBLEDevice::init(std::__cxx11::string(BLE_DEVICE_NAME));
     this->bleScan = NimBLEDevice::getScan(); // Create the scan object.
-
-    //NimBLEDevice::setDefaultPhy(BLE_GAP_LE_PHY_CODED, BLE_GAP_LE_PHY_ANY_MASK);
-    
-
-    BLEAdvertising* adv = NimBLEDevice::getAdvertising();
-
-    //adv->setMinInterval()
-    adv->setName(std::__cxx11::string(BLE_DEVICE_NAME));
-    adv->start();
-
-    //BLEAdvertisementData advData;
-    //advData.addData();
-    //adv->setAdvertisementData(advData);
-
-    NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
-    NimBLEDevice::startAdvertising();
-/*
-    advData.addData();
-
-    adv->setAdvertisementData()
-    adv->start(10)*/
 
     if(this->_prefs.ble_enabled){
       this->applyBLEParams(
@@ -202,7 +181,7 @@ public:
         _prefs.ble_scantime
       );
     }
-    #endif
+#endif
   }
 
   const char* getFirmwareVer() override { return FIRMWARE_VERSION; }
@@ -250,67 +229,17 @@ public:
 
 
   void applyBLEParams(bool enabled, bool active, bool filter_dups, uint16_t max_results, uint32_t scantime) {
-    #ifdef ENABLE_BLE
+#ifdef ENABLE_BLE
     this->bleScan->setActiveScan( active );
     this->bleScan->setMaxResults(max_results);
     this->bleScan->setDuplicateFilter(filter_dups);
     this->bleScan->start(scantime, false, true);
-    #endif
-  }
-
-  void setLoggingOn(bool enable) { _logging = enable; }
-
-  void eraseLogFile() override {
-    _fs->remove(PACKET_LOG_FILE);
-  }
-
-  void dumpLogFile() override {
-#if defined(RP2040_PLATFORM)
-    File f = _fs->open(PACKET_LOG_FILE, "r");
-#else
-    File f = _fs->open(PACKET_LOG_FILE);
 #endif
-    if (f) {
-      while (f.available()) {
-        int c = f.read();
-        if (c < 0) break;
-        Serial.print((char)c);
-      }
-      f.close();
-    }
   }
 
-
-  void setTxPower(uint8_t power_dbm) {
-    radio_set_tx_power(power_dbm);
-  }
-
-  void clearStats() {
-    radio_driver.resetStats();
-    resetStats();
-  }
-
-  void handleSerialData() {
-    _cli.handleSerialData();
-  }
-
-  void loop() {
-    mesh::Dispatcher::loop();
-
-    if (set_radio_at && millisHasNowPassed(set_radio_at)) {   // apply pending (temporary) radio params
-      set_radio_at = 0;  // clear timer
-      radio_set_params(pending_freq, pending_bw, pending_sf, pending_cr, pending_sync_word);
-      MESH_DEBUG_PRINTLN("Temp radio params");
-    }
-
-    if (revert_radio_at && millisHasNowPassed(revert_radio_at)) {   // revert radio params to orig
-      revert_radio_at = 0;  // clear timer
-      radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
-      MESH_DEBUG_PRINTLN("Radio params restored");
-    }
-
-    #ifdef ENABLE_BLE
-
+  
+  void printBLEPackets(){
+#ifdef ENABLE_BLE
     if(_prefs.ble_enabled && !bleScan->isScanning() && !bleReported){
 
       bleReported = true;
@@ -369,8 +298,63 @@ public:
       bleReported = false;
       bleScan->start(_prefs.ble_scantime, false, true);
     }
+#endif
+  }
 
-    #endif
+  void setLoggingOn(bool enable) { _logging = enable; }
+
+  void eraseLogFile() override {
+    _fs->remove(PACKET_LOG_FILE);
+  }
+
+  void dumpLogFile() override {
+#if defined(RP2040_PLATFORM)
+    File f = _fs->open(PACKET_LOG_FILE, "r");
+#else
+    File f = _fs->open(PACKET_LOG_FILE);
+#endif
+    if (f) {
+      while (f.available()) {
+        int c = f.read();
+        if (c < 0) break;
+        Serial.print((char)c);
+      }
+      f.close();
+    }
+  }
+
+
+  void setTxPower(uint8_t power_dbm) {
+    radio_set_tx_power(power_dbm);
+  }
+
+  void clearStats() {
+    radio_driver.resetStats();
+    resetStats();
+  }
+
+  void handleSerialData() {
+    _cli.handleSerialData();
+  }
+
+  void loop() {
+    mesh::Dispatcher::loop();
+
+    if (set_radio_at && millisHasNowPassed(set_radio_at)) {   // apply pending (temporary) radio params
+      set_radio_at = 0;  // clear timer
+      radio_set_params(pending_freq, pending_bw, pending_sf, pending_cr, pending_sync_word);
+      MESH_DEBUG_PRINTLN("Temp radio params");
+    }
+
+    if (revert_radio_at && millisHasNowPassed(revert_radio_at)) {   // revert radio params to orig
+      revert_radio_at = 0;  // clear timer
+      radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
+      MESH_DEBUG_PRINTLN("Radio params restored");
+    }
+
+#ifdef ENABLE_BLE
+    printBLEPackets();
+#endif
   }
 };
 

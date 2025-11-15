@@ -40,6 +40,8 @@ struct NodePrefs {  // persisted to file
     bool ble_filter_dups;     // true
     uint16_t ble_max_results; // 100
     uint32_t ble_scantime;    // 10s in milliseconds
+    uint8_t ble_rxPhyMask;        // BLE_GAP_LE_PHY_ANY_MASK = 0x0F
+    uint8_t ble_txPhyMask;        // BLE_GAP_LE_PHY_ANY_MASK = 0x0F
 };
 
 class CommonCLICallbacks {
