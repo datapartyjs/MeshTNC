@@ -13,6 +13,7 @@ MeshTNC is a tool for piping LoRa data to and from consumer grade radios.
  - Simple serial cli built into the firmware
  - Transmit raw bytes (hex) over LoRA using serial CLI
  - LoRA packet logging to serial (hex)
+ - BLE packet sniffing
  - KISS-TNC mode
 
 ## Compiling
@@ -59,7 +60,7 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
  * `rxlog off` - disable LoRa packet logging
  * `rxlog ble on` - enable BLE packet logging
    * Output format: ` [timestamp],[type=RXBLE],[rssi],[snr],[MAC - 6 octets][hex...]\n`
- * `rxlog ble off` - enable BLE packet logging
+ * `rxlog ble off` - disable BLE packet logging
  * `get ble` - dump BLE settings
  * `set ble <active_scan>,<filter_dups>,<max_results>,<scantime>`
    * `active_scan` - `on` / `off` - Whether to use active scanning Defaults to `off`
