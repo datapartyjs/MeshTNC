@@ -3,9 +3,7 @@
 #include <boost/asio.hpp>
 #include <SerialPort.h>
 
-#define DEBUG true
 #define BUILDING_LIBMESHTNC
-
 
 #ifdef __linux__
 #define SERIAL_PORT "/dev/ttyACM0"
