@@ -43,6 +43,9 @@ public:
   virtual void powerOff() { /* no op */ }
   virtual uint8_t getStartupReason() const = 0;
   virtual bool startOTAUpdate(const char* id, char reply[]) { return false; }   // not supported
+  virtual bool initBLEScanner(uint8_t maxResults, uint32_t scanTimeMs, bool isActive, bool isContinue, bool restart ) { return false; }
+  virtual bool isBLEScanning(){ return false; }
+  //virtual bool outputResults
 };
 
 /**
