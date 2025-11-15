@@ -86,9 +86,11 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   uint8_t pending_sf;
   uint8_t pending_cr;
   uint8_t pending_sync_word;
+#ifdef ENABLE_BLE
   uint32_t blePacketRxCount;
   NimBLEScan* bleScan;
   bool bleReported;
+#endif
 
 protected:
   float getAirtimeBudgetFactor() const override {
