@@ -284,7 +284,7 @@ public:
         } else if (cli_mode == CLIMode::KISS) {
 
           uint8_t kiss_rx[CMD_BUF_LEN_MAX];
-          KISSModem* kiss = this->getCLI()->getKISSModem();
+          KISSModem* kiss = getCLI()->getKISSModem();
           uint16_t kiss_rx_len = kiss->encodeKISSFrame(
             KISSCmd::Data, raw, rawLength, kiss_rx, sizeof(kiss_rx), KISSPort::BLE_Port
           );
