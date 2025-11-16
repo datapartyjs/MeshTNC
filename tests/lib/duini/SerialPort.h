@@ -1,12 +1,12 @@
 #pragma once
 
-#ifdef BUILDING_MESHTNC
-#define MESHTNC_API __declspec(dllexport)
+#ifdef BUILDING_DUINI
+#define DUINI_API __declspec(dllexport)
 #else
-#define MESHTNC_API __declspec(dllimport)
+#define DUINI_API __declspec(dllimport)
 #endif
 
-#include "meshtnc_exports.h"
+#include "duini_exports.h"
 
 #include <cstdlib>
 #include <string>
@@ -21,7 +21,7 @@ using boost::asio::buffer;
 using boost::asio::const_buffer;
 using boost::asio::mutable_buffer;
 
-extern "C" class MESHTNC_EXPORTS SerialPort {
+extern "C" class DUINI_EXPORTS SerialPort {
   // Constructor set
   io_context& _ctx;
   const char* _port;
