@@ -11,13 +11,17 @@ void KISSModem::reset() {
 uint16_t KISSModem::encodeKISSFrame(
   const KISSCmd cmd, 
   const uint8_t* data, const int data_len, 
-  uint8_t* kiss_buf, const int kiss_buf_size
+  uint8_t* kiss_buf, const int kiss_buf_size,
+  const KISSPort port
 ) {
   // begin response
   kiss_buf[0] = KISSFrame::FEND;
   // set KISS port and supplied cmd
+
+  const KISSPort theport = (port == KISSPort::None) ? _port : port;
+
   uint8_t kiss_cmd =
-    ((_port << 4) & KISS_MASK_PORT) |
+    ((theport << 4) & KISS_MASK_PORT) |
     (cmd & KISS_MASK_CMD);
   kiss_buf[1] = kiss_cmd;
   // start after FEND and KISS CMD byte

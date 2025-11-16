@@ -87,6 +87,7 @@ public:
   }
 
   bool startOTAUpdate(const char* id, char reply[]) override;
+
 };
 
 class ESP32RTCClock : public mesh::RTCClock {

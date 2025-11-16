@@ -50,7 +50,13 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read(pad, 3);
     file.read((uint8_t *) &_prefs->interference_threshold, sizeof(_prefs->interference_threshold));
     file.read((uint8_t *) &_prefs->sync_word, sizeof(_prefs->sync_word));
+    file.read(pad, 1);
     file.read((uint8_t *) &_prefs->kiss_port, sizeof(_prefs->kiss_port));
+    file.read((uint8_t *) &_prefs->ble_enabled, sizeof(_prefs->ble_enabled));
+    file.read((uint8_t *) &_prefs->ble_filter_dups, sizeof(_prefs->ble_filter_dups));
+    file.read((uint8_t *) &_prefs->ble_active_scan, sizeof(_prefs->ble_active_scan));
+    file.read((uint8_t *) &_prefs->ble_max_results, sizeof(_prefs->ble_max_results));
+    file.read((uint8_t *) &_prefs->ble_scantime, sizeof(_prefs->ble_scantime));
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -98,7 +104,13 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write(pad, 3);
     file.write((uint8_t *) &_prefs->interference_threshold, sizeof(_prefs->interference_threshold));
     file.write((uint8_t *) &_prefs->sync_word, sizeof(_prefs->sync_word));
+    file.write(pad, 1);
     file.write((uint8_t *) &_prefs->kiss_port, sizeof(_prefs->kiss_port));
+    file.write((uint8_t *) &_prefs->ble_enabled, sizeof(_prefs->ble_enabled));
+    file.write((uint8_t *) &_prefs->ble_filter_dups, sizeof(_prefs->ble_filter_dups));
+    file.write((uint8_t *) &_prefs->ble_active_scan, sizeof(_prefs->ble_active_scan));
+    file.write((uint8_t *) &_prefs->ble_max_results, sizeof(_prefs->ble_max_results));
+    file.write((uint8_t *) &_prefs->ble_scantime, sizeof(_prefs->ble_scantime));
 
     file.close();
   }
@@ -280,6 +292,12 @@ void CommonCLI::handleCLICommand(
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->freq));
     } else if (memcmp(config, "syncword", 8) == 0) {
       sprintf(resp, "> 0x%x", (uint32_t)_prefs->sync_word);
+    } else if (memcmp(config, "ble", 3) == 0) {
+      sprintf(resp, "> %s,%s,%d,%d", 
+        _prefs->ble_active_scan == 1 ? "on" : "off",
+        _prefs->ble_filter_dups == 1 ? "on" : "off",
+        _prefs->ble_max_results, 
+        _prefs->ble_scantime);
     } else {
       sprintf(resp, "??: %s", config);
     }
@@ -303,6 +321,25 @@ void CommonCLI::handleCLICommand(
                          sizeof(_prefs->node_name));
       savePrefs();
       strcpy(resp, "OK");
+    } else if (memcmp(config, "ble ", 4) == 0) {
+      strcpy(_tmp, &config[6]);
+      const char *parts[4];
+      int num = mesh::Utils::parseTextParts(_tmp, parts, 4);
+
+      _prefs->ble_active_scan = num > 0 ? (memcmp(parts[0], "on", 2) == 0) : false;
+      _prefs->ble_filter_dups = num > 1 ? (memcmp(parts[1], "on", 2) == 0) : true;
+      _prefs->ble_max_results  = num > 2 ?  atoi(parts[2]) : 0;
+      _prefs->ble_scantime = num > 3 ? atoi(parts[3]) : 0;
+      _callbacks->savePrefs();
+      _callbacks->applyBLEParams(
+        true,
+        _prefs->ble_active_scan,
+        _prefs->ble_filter_dups,
+        _prefs->ble_max_results,
+        _prefs->ble_scantime
+      );
+      strcpy(resp, "OK - reboot to apply");
+
     } else if (memcmp(config, "radio ", 6) == 0) {
       strcpy(_tmp, &config[6]);
       const char *parts[5];
@@ -405,6 +442,28 @@ void CommonCLI::handleCLICommand(
   } else if (memcmp(command, "rxlog off", 9) == 0) {
     _prefs->log_rx = false;
     strcpy(resp, "   rxlog off");
+  }  else if (memcmp(command, "rxlog ble on", 12) == 0) {
+    _prefs->ble_enabled = true;
+    _callbacks->savePrefs();
+    _callbacks->applyBLEParams(
+      true,
+      _prefs->ble_active_scan,
+      _prefs->ble_filter_dups,
+      _prefs->ble_max_results,
+      _prefs->ble_scantime
+    );
+    strcpy(resp, "OK - reboot to apply");
+  } else if (memcmp(command, "rxlog ble off", 13) == 0) {
+    _prefs->ble_enabled = false;
+    _callbacks->savePrefs();
+    _callbacks->applyBLEParams(
+      true,
+      _prefs->ble_active_scan,
+      _prefs->ble_filter_dups,
+      _prefs->ble_max_results,
+      _prefs->ble_scantime
+    );
+    strcpy(resp, "OK   rxlog ble off");
   } else if (sender_timestamp == 0 && memcmp(command, "log", 3) == 0) {
     _callbacks->dumpLogFile();
     strcpy(resp, "   EOF");
@@ -412,3 +471,5 @@ void CommonCLI::handleCLICommand(
     strcpy(resp, "Unknown command");
   }
 }
+
+
