@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 if (MSVC)
     # warning level 4
+    set(BOOST_ROOT C:/local/boost_1_89_0)
     add_compile_options(/W4)
 else()
     # additional warnings
