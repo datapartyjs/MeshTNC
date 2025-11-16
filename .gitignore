@@ -11,3 +11,5 @@ out/
 .vscode/extensions.json
 .idea/
 tests/build*
+docs/html
+docs/latex
