@@ -1,5 +1,6 @@
 #include "SerialPort.h"
 
+#include <iostream>
 #include <stdexcept>
 
 void SerialPort::open() {
@@ -11,10 +12,11 @@ void SerialPort::open() {
     _serial.set_option(serial_port_base::stop_bits(serial_port_base::stop_bits::one));
     _serial.set_option(serial_port_base::flow_control(serial_port_base::flow_control::none));
   } catch(std::exception& e) {
-#ifndef NDEBUG
-    fprintf(stderr, "error, failed to open serial port '%s': %.*s\r\n", _port, (int)_ec.message().size(), _ec.message().data());
-#endif
-    throw std::exception(e);
+    std::string err = std::format(
+      "error, failed to open serial port '{}': {}",
+      _port, _ec.message()
+    );
+    throw std::runtime_error(err);
   }
 }
 
@@ -24,14 +26,17 @@ size_t SerialPort::write(const std::string command) {
   try {
     wr_len = _serial.write_some(wr_buf, _ec);
   } catch (std::exception& e) {
-#ifndef NDEBUG
-    fprintf(stderr, "error writing to serial port: %.*s\r\n", (int)_ec.message().size(), _ec.message().data());
-#else
-    throw std::exception(e);
-#endif
+    std::string err = std::format(
+      "error writing to serial port '{}': {}",
+      _port, _ec.message()
+    );
+    throw std::runtime_error(err);
   }
 #ifndef NDEBUG
-  fprintf(stderr, "wrote to serial port: %s\r\n", command.c_str());
+  std::cerr << std::format(
+    "wrote to serial port '{}': {}",
+    _port, command
+  ) << std::endl;
 #endif
   return wr_len;
 }
@@ -42,14 +47,17 @@ size_t SerialPort::read(mutable_buffer& buf) {
     try {
       rd_len = _serial.read_some(buf, _ec);
     } catch(std::exception& e) {
-#ifndef NDEBUG
-      fprintf(stderr, "error reading serial port: %.*s\r\n", (int)_ec.message().size(), _ec.message().data());
-#else
-      throw std::exception(e);
-#endif
+      std::string err = std::format(
+        "error reading serial port '{}': {}",
+        _port, _ec.message()
+      );
+      throw std::runtime_error(err);
     }
 #ifndef NDEBUG
-    fprintf(stderr, "%.*s {%i}\r\n", (int)rd_len, (const char *)buf.data(), (int)rd_len);
+    /*std::cerr << std::format(
+        "recieved {} bytes from serial port '{}': ",
+        (int)rd_len, _port
+      ) << std::hex << buf.get_debug_check() << std::endl;*/
 #endif
     return rd_len;
   }
