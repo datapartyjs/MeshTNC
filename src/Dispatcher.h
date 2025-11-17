@@ -165,6 +165,8 @@ public:
   void releasePacket(Packet* packet);
   void sendPacket(Packet* packet, uint8_t priority, uint32_t delay_millis=0);
 
+  Radio* getRadio() { return _radio; }
+  uint32_t getSysUptime() { return _ms->getMillis(); } // in milliseconds
   unsigned long getTotalAirTime() const { return total_air_time; }  // in milliseconds
   uint32_t getNumSentFlood() const { return n_sent_flood; }
   uint32_t getNumSentDirect() const { return n_sent_direct; }

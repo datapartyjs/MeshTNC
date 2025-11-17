@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include <Mesh.h>
+#include <Dispatcher.h>
 
 enum CLIMode { CLI, KISS };
 
@@ -18,6 +18,15 @@ enum KISSFrame: uint16_t {
   TFESC = 0xDD
 };
 
+enum KISSPort: uint8_t {
+  LoRa_Port = 0x0,
+  GPS_Port = 0x1,
+  BLE_Port = 0x2,
+  WiFi_Port = 0x3,
+  Global_Port = 0xf,
+  None = 0xff
+};
+
 enum KISSCmd: uint8_t {
   Data = 0x0,
   TxDelay = 0x1,
@@ -29,13 +38,24 @@ enum KISSCmd: uint8_t {
   Return = 0xF
 };
 
-enum KISSPort: uint8_t {
-  LoRa_Port = 0x0,
-  GPS_Port = 0x1,
-  BLE_Port = 0x2,
-  WiFi_Port = 0x3,
-  Global_Port = 0xf,
-  None = 0xff
+enum KISSVendorCmd: uint16_t {
+  GetRadioStats = 0x01,     // retrieve radio stats, takes no additional arguments
+  SignalReporting = 0x80,   // enable SNR and RSSI reporting by setting the following byte to anything other than 0
+};
+
+struct RadioStats {
+  uint8_t noise;
+  uint32_t rx_count;
+  uint32_t tx_count;
+  unsigned long tx_airtime;
+  uint32_t uptime;
+};
+
+struct SignalReport {
+  unsigned long long timestamp;
+  uint8_t rssi;
+  int8_t snr;
+  uint16_t pkt_len;
 };
 
 class KISSModem {
@@ -45,20 +65,24 @@ class KISSModem {
   KISSPort _port;
   char _cmd[CMD_BUF_LEN_MAX];
 
-  mesh::Mesh* _mesh;
+  mesh::Dispatcher* _dispatcher;
   CLIMode* _cli_mode;
 
+  void handleVendorCommand(uint32_t sender_timestamp, const char* vendor_data, uint16_t len);
+
   public:
-    KISSModem(CLIMode* cli_mode, mesh::Mesh* mesh) : _cli_mode(cli_mode), _mesh(mesh) {
-        _len = 0;
-        _esc = false;
-        _txdelay = 0;
+    KISSModem(CLIMode* cli_mode, mesh::Dispatcher* dispatcher) 
+      : _cli_mode(cli_mode), _dispatcher(dispatcher)
+    {
+      _len = 0;
+      _esc = false;
+      _txdelay = 0;
     }
     KISSPort getPort() { return _port; };
     void setPort(KISSPort port) { _port = port; };
-    void reset() {_len = 0; };
+    void reset();
     void parseSerialKISS();
-    void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, uint16_t len);
+    void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, const uint16_t len);
     uint16_t encodeKISSFrame(
       const KISSCmd cmd, 
       const uint8_t* data, const int data_len, 
