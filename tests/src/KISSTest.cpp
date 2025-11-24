@@ -1,9 +1,7 @@
 #include <string>
+#include <iostream>
 #include <cassert>
-#include <boost/asio.hpp>
 #include <SerialPort.h>
-
-#define BUILDING_DUINI
 
 #ifdef __linux__
 #define SERIAL_PORT "/dev/ttyACM0"
@@ -13,10 +11,6 @@
 #define SERIAL_PORT ""
 #endif
 
-using boost::asio::io_context;
-using boost::asio::buffer;
-using boost::asio::mutable_buffer;
-
 int main () {
   std::vector<uint8_t> input(4096);
 
@@ -24,16 +18,20 @@ int main () {
   printf("Boost has serial port!\r\n");
   #endif
 
-  io_context ctx;
-  SerialPort serial(ctx, SERIAL_PORT);
-  serial.open();
+  Serial.open(SERIAL_PORT);
   
-  std::string  command("get radio\r\n");
-  serial.write(command);
+  std::string command("get radio");
 
-  mutable_buffer rd_buf(buffer(input));
-  serial.read(rd_buf);
+  std::cout << "Sending command: " << command << std::endl;
+  
+  command.append("\r\n");
+  Serial.write(command.data(), command.length());
 
-  serial.close();
+  std::cout << "Response:" << std::endl;
+  while (Serial.available()) {
+    std::cout << std::hex << Serial.read();
+  }
+  std::cout << std::endl;
 
+  Serial.close();
 }

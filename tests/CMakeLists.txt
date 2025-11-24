@@ -15,14 +15,20 @@ else()
     add_compile_options(-Wall -Wextra)
 endif()
 
-find_package(Boost 1.8.3 REQUIRED)
+find_package(
+  Boost 1.8.3
+  REQUIRED
+)
 
 ## duini library section
 add_library(
   duini SHARED
+  lib/duini/duini.h
   lib/duini/SerialPort.h
   lib/duini/SerialPort.cpp
 )
+
+target_compile_definitions(duini PRIVATE duini_EXPORTS)
 
 GENERATE_EXPORT_HEADER(
   duini
@@ -43,9 +49,19 @@ target_link_libraries(duini ${Boost_LIBRARIES})
 ## MeshTNC library section
 add_library(
   MeshTNC SHARED
-	lib/meshtnc/KISS.h
+  lib/meshtnc/MeshTNC.h
+  lib/meshtnc/Meshcore.h
+  lib/meshtnc/Utils.h
+  lib/meshtnc/Utils.cpp
+  lib/meshtnc/Packet.h
+  lib/meshtnc/Packet.cpp
+  lib/meshtnc/Dispatcher.h
+  lib/meshtnc/Dispatcher.cpp
+  lib/meshtnc/KISS.h
 	lib/meshtnc/KISS.cpp
 )
+
+target_compile_definitions(MeshTNC PRIVATE meshtnc_EXPORTS)
 
 GENERATE_EXPORT_HEADER(
   MeshTNC
@@ -60,7 +76,7 @@ target_include_directories(
   "${CMAKE_CURRENT_BINARY_DIR}/lib"
 )
 
-target_link_libraries(MeshTNC)
+target_link_libraries(MeshTNC duini)
 
 ## Main section
 add_executable(
@@ -71,4 +87,5 @@ add_executable(
 target_link_libraries(
   KISSTest
 	duini
+  MeshTNC
 )

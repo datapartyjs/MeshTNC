@@ -1,12 +1,6 @@
 #pragma once
 
-#ifdef BUILDING_DUINI
-#define DUINI_API __declspec(dllexport)
-#else
-#define DUINI_API __declspec(dllimport)
-#endif
-
-#include "duini_exports.h"
+#include "duini.h"
 
 #include <cstdlib>
 #include <string>
@@ -21,25 +15,33 @@ using boost::asio::buffer;
 using boost::asio::const_buffer;
 using boost::asio::mutable_buffer;
 
-extern "C" class DUINI_EXPORTS SerialPort {
-  // Constructor set
-  io_context& _ctx;
-  const char* _port;
+struct BoostPrivate {
+  error_code ec = error_code();
+  io_context ctx = io_context();
+  serial_port serial = serial_port(ctx);
+};
 
-  // Ephemeral
-  error_code _ec;
-
-  // Structural
-  serial_port _serial;
+class DUINI_EXPORTS SerialPort {
+  char _port[64];
+  bool _open;
+  BoostPrivate _boost;
 
   public:
-    SerialPort(io_context &ctx, const char* port)
-      : _ctx(ctx), _port(port), _serial(_ctx)
+    SerialPort()
     {
-
+      _open = false;
     }
-    void open();
-    void close() { _serial.close(); };
-    size_t write(const std::string command);
-    size_t read(mutable_buffer& buf);
+    void open(const char* port);
+    void close();
+    bool isOpen() { return _open; };
+    // Arduino compatible
+    size_t write(uint8_t val);
+    size_t write(const char* str);
+    size_t write(const char* buf, size_t len);
+    size_t write(const uint8_t* buf, size_t len);
+    size_t println(const char* val);
+    int read();
+    unsigned int available();
 };
+
+extern DUINI_EXPORTS SerialPort Serial;
