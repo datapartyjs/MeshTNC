@@ -11,7 +11,7 @@
 
 #include "Dispatcher.h"
 
-enum CLIMode { CLI, KISS };
+extern MESHTNC_EXPORTS enum CLIMode { CLI, KISS };
 
 #define CMD_BUF_LEN_MAX 500
 

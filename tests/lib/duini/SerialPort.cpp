@@ -41,6 +41,10 @@ void SerialPort::open(const char* port) {
   _open = true;
 }
 
+size_t SerialPort::print(char val) {
+  return write(&val, 1);
+}
+
 size_t SerialPort::println(const char* val) {
   size_t len = strlen(val);
   std::string buffer;
@@ -82,7 +86,7 @@ size_t SerialPort::write(const uint8_t* buf, size_t len) {
 #ifndef NDEBUG
   std::string data("");
   for (size_t i = 0; i < len; i++) {
-    data.append(std::format("{:x}", buf[i]));
+    data.append(std::format("{:02x}", buf[i]));
   }
   std::cerr << std::format(
     "wrote to serial port '{}': {}",
@@ -108,11 +112,12 @@ int SerialPort::read() {
       throw e;
     }
 #ifndef NDEBUG
-    std::cerr << std::format(
-        "recieved {} bytes from serial port '{}': ",
-        (int)rd_len, _port
+    if (rd_len > 0) {
+      std::cerr << std::format(
+        "recieved {} bytes from serial port '{}': {:02x}",
+        (int)rd_len, _port, data
       ) << std::endl;
-      // TODO: print bytes here
+    }
 #endif
     if (rd_len > 0) {
       return data;

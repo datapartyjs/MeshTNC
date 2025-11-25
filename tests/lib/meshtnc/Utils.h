@@ -38,6 +38,7 @@ public:
   /**
    * \brief  Prints the hexadecimal representation of 'src' bytes of given length, to Stream 's'.
   */
+ // TODO: Implement Stream class on PC
 #ifdef ARDUINO
   static void printHex(Stream& s, const uint8_t* src, size_t len);
 #endif
