@@ -56,6 +56,8 @@ add_library(
   lib/meshtnc/Meshcore.h
   lib/meshtnc/Utils.h
   lib/meshtnc/Utils.cpp
+  lib/meshtnc/TxtDataHelpers.h
+  lib/meshtnc/TxtDataHelpers.cpp
   lib/meshtnc/Packet.h
   lib/meshtnc/Packet.cpp
   lib/meshtnc/StaticPoolPacketManager.h
