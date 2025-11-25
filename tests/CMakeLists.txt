@@ -24,6 +24,8 @@ find_package(
 add_library(
   duini SHARED
   lib/duini/duini.h
+  lib/duini/FileSystem.h
+  lib/duini/FileSystem.cpp
   lib/duini/SerialPort.h
   lib/duini/SerialPort.cpp
 )
@@ -55,10 +57,14 @@ add_library(
   lib/meshtnc/Utils.cpp
   lib/meshtnc/Packet.h
   lib/meshtnc/Packet.cpp
+  lib/meshtnc/StaticPoolPacketManager.h
+  lib/meshtnc/StaticPoolPacketManager.cpp
   lib/meshtnc/Dispatcher.h
   lib/meshtnc/Dispatcher.cpp
   lib/meshtnc/KISS.h
 	lib/meshtnc/KISS.cpp
+  lib/meshtnc/CommonCLI.h
+  lib/meshtnc/CommonCLI.cpp
 )
 
 target_compile_definitions(MeshTNC PRIVATE meshtnc_EXPORTS)
@@ -81,6 +87,8 @@ target_link_libraries(MeshTNC duini)
 ## Main section
 add_executable(
   KISSTest
+  src/TNC.h
+  src/TNC.cpp
 	src/KISSTest.cpp
 )
 

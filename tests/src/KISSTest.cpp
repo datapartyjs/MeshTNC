@@ -6,6 +6,7 @@
 #include <cassert>
 
 #include <SerialPort.h>
+#include <FileSystem.h>
 
 #include <Dispatcher.h>
 #include <KISS.h>
@@ -26,6 +27,7 @@ int main () {
   #endif
 
   Serial.open(SERIAL_PORT);
+  PCFileSystem.begin("MeshTNC.data/");
 
   //CLIMode cli_mode = CLIMode::KISS;
   //mesh::Dispatcher disp = mesh::Dispatcher();
