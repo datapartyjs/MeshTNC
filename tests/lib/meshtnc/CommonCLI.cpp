@@ -5,6 +5,7 @@
   #include "TxtDataHelpers.h"
   #include <RTClib.h>
 #else
+  #include <DateTime.h>
   #include <SerialPort.h>
 #endif
 

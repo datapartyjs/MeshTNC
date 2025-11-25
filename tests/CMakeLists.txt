@@ -24,6 +24,7 @@ find_package(
 add_library(
   duini SHARED
   lib/duini/duini.h
+  lib/duini/DateTime.h
   lib/duini/FileSystem.h
   lib/duini/FileSystem.cpp
   lib/duini/SerialPort.h
