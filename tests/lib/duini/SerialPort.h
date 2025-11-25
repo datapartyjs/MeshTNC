@@ -21,7 +21,7 @@ struct BoostPrivate {
   serial_port serial = serial_port(ctx);
 };
 
-class DUINI_EXPORTS SerialPort {
+extern class DUINI_EXPORTS SerialPort {
   char _port[64];
   bool _open;
   BoostPrivate _boost;
@@ -47,6 +47,7 @@ class DUINI_EXPORTS SerialPort {
     size_t print(int val);
     size_t print(float val);
     size_t print(char* val);
+    size_t print(const char* val);
     size_t printf(const char* fmt, ...);
 
     int read();
