@@ -1,4 +1,5 @@
 #include <Utils.h>
+#include <TxtDataHelpers.h>
 #include <StaticPoolPacketManager.h>
 #include <Dispatcher.h>
 #include <KISS.h>

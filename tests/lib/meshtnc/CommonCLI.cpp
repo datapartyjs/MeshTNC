@@ -1,8 +1,8 @@
 #include "CommonCLI.h"
+#include "TxtDataHelpers.h"
 
 #ifdef ARDUINO
   #include <Arduino.h>
-  #include "TxtDataHelpers.h"
   #include <RTClib.h>
 #else
   #include <DateTime.h>
