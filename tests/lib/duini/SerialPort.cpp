@@ -152,16 +152,16 @@ unsigned int SerialPort::available() {
 #else // TODO: define as linux, figure out BSD, Apple, etc
   if (
     ::ioctl(
-      _boost._serial.lowest_layer().native_handle(),
+      _boost.serial.lowest_layer().native_handle(),
       FIONREAD,
       &bytes_avail
-    ) == 0
+    ) == -1
   ) { // failure
     error = error_code(
       errno,
       boost::asio::error::get_system_category()
     );
-    _ec = error;
+    _boost.ec = error;
     throw; // TODO: throw proper exception
   }
 #endif

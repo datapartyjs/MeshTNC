@@ -185,7 +185,7 @@ void KISSModem::handleVendorCommand(
   switch (vend_cmd) {
   case KISSVendorCmd::GetRadioStats: {
       RadioStats stats {
-        _dispatcher->getRadio()->getNoiseFloor(),
+        static_cast<uint8_t>(_dispatcher->getRadio()->getNoiseFloor()),
         _dispatcher->getNumRecvDirect(),
         _dispatcher->getNumSentDirect(),
         _dispatcher->getTotalAirTime(),
