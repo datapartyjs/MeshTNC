@@ -5,6 +5,8 @@
 // This is heavily refactored AI cybertrash output from
 // Qwen3 Coder 30B A3B Instruct 1M Q8_0 run locally in LM Studio
 
+FILESYSTEM PCFileSystem = FILESYSTEM();
+
 bool FILESYSTEM::begin(std::string base_dir) {
   _base_dir = base_dir;
   try {
@@ -173,11 +175,6 @@ size_t File::write(const uint8_t* buffer, size_t size) {
 size_t File::write(const char* str) {
   if (!isOpen()) return 0;  // Error: file not open
   return write(reinterpret_cast<const uint8_t*>(str), strlen(str));
-}
-
-size_t File::write(const uint8_t* buffer, unsigned long long size) {
-  if (!isOpen()) return 0;  // Error: file not open    
-  return write(buffer, static_cast<size_t>(size));
 }
 
 void File::close() {
