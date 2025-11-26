@@ -1,6 +1,9 @@
-#include <Arduino.h>   // needed for PlatformIO
+#include <Utils.h>
+#include <TxtDataHelpers.h>
+#include <StaticPoolPacketManager.h>
 #include <Dispatcher.h>
-#include <MeshCore.h>
+#include <KISS.h>
+#include <CommonCLI.h>
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   #include <InternalFileSystem.h>
@@ -8,70 +11,30 @@
   #include <LittleFS.h>
 #elif defined(ESP32)
   #include <SPIFFS.h>
+#elif !defined(ARDUINO)
+  #include <FileSystem.h>
+  #include <SerialPort.h>
+  #include <DateTime.h>
 #endif
 
-#include <helpers/ArduinoHelpers.h>
-#include <helpers/StaticPoolPacketManager.h>
-#include <helpers/TxtDataHelpers.h>
-#include <helpers/CommonCLI.h>
-#include <RTClib.h>
-#include <target.h>
+#define PACKET_LOG_FILE  "/packet_log"
 
-/* ------------------------------ Config -------------------------------- */
-
-#ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "1 Aug 2025"
-#endif
+#define ADVERT_NAME "MeshTNC"
+#define ADVERT_LAT  0.0
+#define ADVERT_LON  0.0
+#define LORA_FREQ   915.0
+#define LORA_SF     7
+#define LORA_BW     250.0
+#define LORA_CR     5
+#define LORA_TX_PWR 1
 
 #ifndef FIRMWARE_VERSION
   #define FIRMWARE_VERSION   "v1"
 #endif
 
-#ifndef LORA_FREQ
-  #define LORA_FREQ   915.0
+#ifndef FIRMWARE_BUILD_DATE
+  #define FIRMWARE_BUILD_DATE   "1 Aug 2025"
 #endif
-#ifndef LORA_BW
-  #define LORA_BW     250
-#endif
-#ifndef LORA_SF
-  #define LORA_SF     10
-#endif
-#ifndef LORA_CR
-  #define LORA_CR      5
-#endif
-#ifndef LORA_TX_POWER
-  #define LORA_TX_POWER  20
-#endif
-
-#ifndef SERVER_RESPONSE_DELAY
-  #define SERVER_RESPONSE_DELAY   300
-#endif
-
-#ifndef TXT_ACK_DELAY
-  #define TXT_ACK_DELAY     200
-#endif
-
-#define FIRMWARE_ROLE "kisstnc"
-
-#define PACKET_LOG_FILE  "/packet_log"
-
-#ifdef ENABLE_BLE
-  #define BLE_SCAN_TIME_MS (30 * 10000)
-  #define BLE_DEVICE_NAME "MeshTNC"
-  #include <NimBLEDevice.h>
-#endif
-
-/* ------------------------------ Code -------------------------------- */
-
-#define REQ_TYPE_GET_STATUS          0x01   // same as _GET_STATS
-#define REQ_TYPE_KEEP_ALIVE          0x02
-#define REQ_TYPE_GET_TELEMETRY_DATA  0x03
-
-#define RESP_SERVER_LOGIN_OK      0   // response to ANON_REQ
-
-
-#define CLI_REPLY_DELAY_MILLIS  600
-
 
 class MyMesh : public mesh::Dispatcher, public CommonCLICallbacks {
   mesh::RTCClock* _rtc;
@@ -106,8 +69,11 @@ protected:
       CommonCLI* cli = getCLI();
       Serial.printf("%lu", rtc_clock.getCurrentTime());
       Serial.printf(",RXLOG,%.2f,%.2f", rssi, snr);
-      Serial.print(",");
-      mesh::Utils::printHex(Serial, raw, len);
+      Serial.print(',');
+      // TODO: Fix this crap
+#ifdef ARDUINO
+      mesh::Utils::printHex(Serial, raw, len); // Look at TODO
+#endif
       Serial.println();
     } else if (cli_mode == CLIMode::KISS) {
       uint8_t kiss_rx[CMD_BUF_LEN_MAX];
@@ -157,7 +123,7 @@ public:
     _prefs.sf = LORA_SF;
     _prefs.bw = LORA_BW;
     _prefs.cr = LORA_CR;
-    _prefs.tx_power_dbm = LORA_TX_POWER;
+    _prefs.tx_power_dbm = LORA_TX_PWR;
     _prefs.interference_threshold = 0;  // disabled
     _prefs.sync_word = 0x2B;
     _prefs.log_rx = true;
@@ -215,6 +181,8 @@ public:
     return LittleFS.format();
 #elif defined(ESP32)
     return SPIFFS.format();
+#elif !defined(ARDUINO)
+    return PCFileSystem.format();
 #else
     #error "need to implement file system erase"
     return false;
@@ -318,7 +286,7 @@ public:
   }
 
   void dumpLogFile() override {
-#if defined(RP2040_PLATFORM)
+#if defined(RP2040_PLATFORM) || !defined(ARDUINO)
     File f = _fs->open(PACKET_LOG_FILE, "r");
 #else
     File f = _fs->open(PACKET_LOG_FILE);
@@ -367,44 +335,3 @@ public:
 #endif
   }
 };
-
-StdRNG fast_rng;
-
-MyMesh the_mesh(board, radio_driver, *new ArduinoMillis(), fast_rng, rtc_clock);
-
-void halt() {
-  while (1) ;
-}
-
-
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-
-  board.begin();
-
-  if (!radio_init()) { halt(); }
-
-  fast_rng.begin(radio_get_rng_seed());
-
-  FILESYSTEM* fs;
-#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
-  InternalFS.begin();
-  fs = &InternalFS;
-#elif defined(ESP32)
-  SPIFFS.begin(true);
-  fs = &SPIFFS;
-#elif defined(RP2040_PLATFORM)
-  LittleFS.begin();
-  fs = &LittleFS;
-#else
-  #error "need to define filesystem"
-#endif
-  the_mesh.begin(fs);
-}
-
-void loop() {
-  if (Serial.available())
-    the_mesh.handleSerialData();
-  the_mesh.loop();
-}

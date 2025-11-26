@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Mesh.h>
+#include <Dispatcher.h>
 #include <RadioLib.h>
 
 class RadioLibWrapper : public mesh::Radio {

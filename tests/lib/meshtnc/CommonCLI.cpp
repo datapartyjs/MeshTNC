@@ -1,7 +1,14 @@
-#include <Arduino.h>
 #include "CommonCLI.h"
 #include "TxtDataHelpers.h"
-#include <RTClib.h>
+
+#ifdef ARDUINO
+  #include <Arduino.h>
+  #include <RTClib.h>
+#else
+  #include <DateTime.h>
+  #include <SerialPort.h>
+  #define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
+#endif
 
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
@@ -24,7 +31,7 @@ void CommonCLI::loadPrefs(FILESYSTEM* fs) {
 }
 
 void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
-#if defined(RP2040_PLATFORM)
+#if defined(RP2040_PLATFORM) || !defined(ARDUINO)
   File file = fs->open(filename, "r");
 #else
   File file = fs->open(filename);
@@ -77,7 +84,7 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   fs->remove("/com_prefs");
   File file = fs->open("/com_prefs", FILE_O_WRITE);
-#elif defined(RP2040_PLATFORM)
+#elif defined(RP2040_PLATFORM) || !defined(ARDUINO)
   File file = fs->open("/com_prefs", "w");
 #else
   File file = fs->open("/com_prefs", "w", true);
@@ -195,7 +202,10 @@ void CommonCLI::handleCLICommand(
       len_buf++;
     }
     pkt->readFrom(tx_buf, len_buf);
+    // TODO: Fix this crap
+#ifdef ARDUINO
     mesh::Utils::printHex(Serial, tx_buf, len_buf);
+#endif
     _dispatcher->sendPacket(pkt, 1);
     strcpy(resp, "OK");
   } else if (memcmp(command, "clock sync", 10) == 0) {

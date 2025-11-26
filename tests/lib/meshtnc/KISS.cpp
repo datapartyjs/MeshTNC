@@ -185,15 +185,16 @@ void KISSModem::handleVendorCommand(
   switch (vend_cmd) {
   case KISSVendorCmd::GetRadioStats: {
       RadioStats stats {
-        _dispatcher->getRadio()->getNoiseFloor(),
+        static_cast<uint8_t>(_dispatcher->getRadio()->getNoiseFloor()),
         _dispatcher->getNumRecvDirect(),
         _dispatcher->getNumSentDirect(),
         _dispatcher->getTotalAirTime(),
         _dispatcher->getSysUptime()
       };
       uint8_t* raw_stats = reinterpret_cast<uint8_t*>(&stats);
-      uint16_t data_len = sizeof(stats);
-      uint8_t data[data_len++] = {KISSVendorCmd::GetRadioStats};
+      const uint16_t data_len = sizeof(stats) + 1; // additional byte for vendor cmd
+      uint8_t data[data_len];
+      data[0] = {KISSVendorCmd::GetRadioStats};
       memcpy(&data[1], raw_stats, sizeof(stats));
       uint16_t len = encodeKISSFrame(
         KISSCmd::Vendor, data, data_len, response, sizeof(response)

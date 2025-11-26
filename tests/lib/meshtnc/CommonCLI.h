@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Dispatcher.h>
+#include "Dispatcher.h"
 #include "KISS.h"
 
 #if defined(ESP32) || defined(RP2040_PLATFORM)
@@ -11,6 +11,9 @@
   #define FILESYSTEM  Adafruit_LittleFS
 
   using namespace Adafruit_LittleFS_Namespace;
+#elif !defined(ARDUINO)
+  #include <stdint.h>
+  #include <FileSystem.h>
 #endif
 
 #define CMD_BUF_LEN_MAX 500
