@@ -25,10 +25,13 @@ add_library(
   duini SHARED
   lib/duini/duini.h
   lib/duini/DateTime.h
+  lib/duini/DateTime.cpp
   lib/duini/FileSystem.h
   lib/duini/FileSystem.cpp
   lib/duini/SerialPort.h
   lib/duini/SerialPort.cpp
+  lib/duini/RadioDriver.h
+  lib/duini/RadioDriver.cpp
 )
 
 target_compile_definitions(duini PRIVATE duini_EXPORTS)
