@@ -10,9 +10,7 @@ extern class DUINI_EXPORTS AutoDiscoverRTCClock {
 
   public:
   AutoDiscoverRTCClock() {}
-  uint32_t getCurrentTime() {
-    return std::time(nullptr);
-  }
+  uint32_t getCurrentTime();
 };
 
 extern AutoDiscoverRTCClock DUINI_EXPORTS rtc_clock;
@@ -28,10 +26,10 @@ extern class DUINI_EXPORTS DateTime {
     std::tm* tmp = std::gmtime(&t);
     _time_tm = *tmp;
   }
-  int second() { return _time_tm.tm_sec; }
-  int minute() { return _time_tm.tm_min; }
-  int hour() { return _time_tm.tm_hour; }
-  int day() { return _time_tm.tm_mday; }
-  int month() { return _time_tm.tm_mon + 1; } // tm_mon is 0-based
-  int year() { return _time_tm.tm_year + 1900;  } // tm_year is years since 1900
+  int second();
+  int minute();
+  int hour();
+  int day();
+  int month();
+  int year();
 };
