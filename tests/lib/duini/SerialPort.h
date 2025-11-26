@@ -35,21 +35,18 @@ extern class DUINI_EXPORTS SerialPort {
     void close();
     bool isOpen() { return _open; };
     // Arduino compatible
-    size_t write(uint8_t val);
-    size_t write(const char* str);
-    size_t write(const char* buf, size_t len);
     size_t write(const uint8_t* buf, size_t len);
+    size_t write(uint8_t val);
+    size_t write(const char* buf, size_t len);
+    size_t write(const char* str);
     size_t println(const char* val);
-    size_t print(char val);
-
-    // TODO: Implement!
     size_t println();
     size_t print(int val);
     size_t print(float val);
+    size_t print(char val);
     size_t print(char* val);
     size_t print(const char* val);
     size_t printf(const char* fmt, ...);
-
     int read();
     unsigned int available();
 };

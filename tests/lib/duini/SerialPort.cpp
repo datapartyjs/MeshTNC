@@ -1,5 +1,7 @@
 #include "SerialPort.h"
 
+#include <format>
+#include <string>
 #include <iostream>
 #include <stdexcept>
 
@@ -41,35 +43,6 @@ void SerialPort::open(const char* port) {
   _open = true;
 }
 
-size_t SerialPort::print(char val) {
-  return write(&val, 1);
-}
-
-size_t SerialPort::println(const char* val) {
-  size_t len = strlen(val);
-  std::string buffer;
-  buffer.reserve(len + 2);
-  buffer.append(val, len);
-  buffer.append("\r\n", 2);
-  return write(buffer.c_str(), buffer.size());
-}
-
-size_t SerialPort::write(const uint8_t val) {
-  size_t written = write(&val, 1);
-  return written;
-}
-
-size_t SerialPort::write(const char* str) {
-  size_t len = strlen(str);
-  if (len == 0) { return 0; }
-  size_t written = write(str, len);
-  return written;
-}
-
-size_t SerialPort::write(const char* buf, size_t len) {
-  return write((const uint8_t*)buf, len);
-}
-
 size_t SerialPort::write(const uint8_t* buf, size_t len) {
   const_buffer wr_buf(buf, len);
   size_t wr_len;
@@ -94,6 +67,77 @@ size_t SerialPort::write(const uint8_t* buf, size_t len) {
   ) << std::endl;
 #endif
   return wr_len;
+}
+
+size_t SerialPort::write(const uint8_t val) {
+  size_t written = write(&val, 1);
+  return written;
+}
+
+size_t SerialPort::write(const char* buf, size_t len) {
+  return write(reinterpret_cast<const uint8_t*>(buf), len);
+}
+
+size_t SerialPort::write(const char* str) {
+  size_t len = strlen(str);
+  if (len == 0) { return 0; }
+  size_t written = write(str, len);
+  return written;
+}
+
+size_t SerialPort::println(const char* val) {
+  size_t len = strlen(val);
+  std::string buffer;
+  buffer.reserve(len + 2);
+  buffer.append(val, len);
+  buffer.append("\r\n", 2);
+  return write(buffer.c_str(), buffer.size());
+}
+
+size_t SerialPort::println() {
+  return write("\r\n", 2);
+}
+
+size_t SerialPort::print(int val) {
+  std::string str = std::to_string(val);
+  return write(str.c_str(), str.length());
+}
+
+size_t SerialPort::print(float val) {
+  std::string str = std::to_string(val);
+  return write(str.c_str(), str.length());
+}
+
+size_t SerialPort::print(char val) {
+  return write(&val, 1);
+}
+
+size_t SerialPort::print(char* val) {
+  return print((const char*)val);
+}
+
+size_t SerialPort::print(const char* val) {
+  size_t len = strlen(val);
+  if (len == 0) { return 0; }
+  return write(val, len);
+}
+
+size_t SerialPort::printf(const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+
+  int len = vsnprintf(nullptr, 0, fmt, args);
+  if (len <= 0) {
+    va_end(args);
+    return 0;
+  }
+  
+  std::string str(len, '\0');
+  vsnprintf(&str[0], len + 1, fmt, args);
+  
+  va_end(args);
+  
+  return write(str.c_str(), str.length());
 }
 
 int SerialPort::read() {
