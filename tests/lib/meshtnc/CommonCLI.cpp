@@ -7,6 +7,7 @@
 #else
   #include <DateTime.h>
   #include <SerialPort.h>
+  #define constrain(amt,low,high) ((amt)<(low)?(low):((amt)>(high)?(high):(amt)))
 #endif
 
 // Believe it or not, this std C function is busted on some platforms!
@@ -201,7 +202,10 @@ void CommonCLI::handleCLICommand(
       len_buf++;
     }
     pkt->readFrom(tx_buf, len_buf);
+    // TODO: Fix this crap
+#ifdef ARDUINO
     mesh::Utils::printHex(Serial, tx_buf, len_buf);
+#endif
     _dispatcher->sendPacket(pkt, 1);
     strcpy(resp, "OK");
   } else if (memcmp(command, "clock sync", 10) == 0) {

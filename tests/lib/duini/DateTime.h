@@ -6,6 +6,17 @@
 #include <chrono>
 #include <ctime>
 
+extern class DUINI_EXPORTS AutoDiscoverRTCClock {
+
+  public:
+  AutoDiscoverRTCClock() {}
+  uint32_t getCurrentTime() {
+    return std::time(nullptr);
+  }
+};
+
+extern AutoDiscoverRTCClock DUINI_EXPORTS rtc_clock;
+
 extern class DUINI_EXPORTS DateTime {
   std::tm _time_tm;
 

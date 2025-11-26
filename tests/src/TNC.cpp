@@ -14,6 +14,7 @@
 #elif !defined(ARDUINO)
   #include <FileSystem.h>
   #include <SerialPort.h>
+  #include <DateTime.h>
 #endif
 
 #define PACKET_LOG_FILE  "/packet_log"
@@ -69,7 +70,10 @@ protected:
       Serial.printf("%lu", rtc_clock.getCurrentTime());
       Serial.printf(",RXLOG,%.2f,%.2f", rssi, snr);
       Serial.print(',');
+      // TODO: Fix this crap
+#ifdef ARDUINO
       mesh::Utils::printHex(Serial, raw, len); // Look at TODO
+#endif
       Serial.println();
     } else if (cli_mode == CLIMode::KISS) {
       uint8_t kiss_rx[CMD_BUF_LEN_MAX];
