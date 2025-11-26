@@ -24,6 +24,7 @@ void StrHelper::strzcpy(char* dest, const char* src, size_t buf_sz) {
 #else
   #include <stdint.h>
   #include <stdlib.h>
+  #include <stdio.h>
 #endif
 
 union int32_Float_t 
@@ -46,6 +47,7 @@ union int32_Float_t
 //precision 0-9
 #define PRECISION 7
  
+#ifdef ARDUINO
 //_ftoa function 
 static void _ftoa(float f, char *p, int *status) 
 {
@@ -126,9 +128,11 @@ static void _ftoa(float f, char *p, int *status)
   }
   *p = 0;
 }
+#endif
 
 const char* StrHelper::ftoa(float f) {
   static char tmp[16];
+#ifdef ARDUINO
   int status;
   _ftoa(f, tmp, &status);
   if (status) {
@@ -136,4 +140,14 @@ const char* StrHelper::ftoa(float f) {
     tmp[1] = 0;
   }
   return tmp;
+#else
+  int len = snprintf(tmp, sizeof(tmp), "%.7f", f);
+  if (len < 0 || len >= (int)sizeof(tmp)) {
+    // Handle error or truncation
+    tmp[0] = '0';
+    tmp[1] = '\0';
+  }
+  return tmp;
+#endif
+
 }
