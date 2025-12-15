@@ -18,7 +18,7 @@
 
 #define CMD_BUF_LEN_MAX 500
 
-struct NodePrefs {  // persisted to file
+extern struct MESHTNC_EXPORTS NodePrefs {  // persisted to file
     float airtime_factor;
     char node_name[32];
     double node_lat, node_lon;
@@ -47,7 +47,7 @@ struct NodePrefs {  // persisted to file
     uint8_t ble_txPhyMask;        // BLE_GAP_LE_PHY_ANY_MASK = 0x0F
 };
 
-class CommonCLICallbacks {
+extern class MESHTNC_EXPORTS CommonCLICallbacks {
 public:
   virtual void savePrefs() = 0;
   virtual const char* getFirmwareVer() = 0;
@@ -63,7 +63,7 @@ public:
   virtual void applyBLEParams(bool enabled, bool active, bool filter_dups, uint16_t max_results, uint32_t scantime) = 0;
 };
 
-class CommonCLI {
+extern class MESHTNC_EXPORTS CommonCLI {
   mesh::RTCClock* _rtc;
   NodePrefs* _prefs;
   mesh::Dispatcher* _dispatcher;
