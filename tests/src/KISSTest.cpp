@@ -9,15 +9,25 @@
 #include <FileSystem.h>
 
 #include <Dispatcher.h>
+#include <ArduinoHelpers.h>
 #include <KISS.h>
+#include "TNC.h"
 
 #ifdef __linux__
-#define SERIAL_PORT "/dev/ttyACM0"
+// this is a link to a pty/tty in my development environment
+#define SERIAL_PORT "serial.port"
 #elif _WIN32
-#define SERIAL_PORT "\\\\.\\COM4"
+#define SERIAL_PORT "\\\\.\\COM5"
 #else
 #define SERIAL_PORT ""
 #endif
+
+PCBoard board;
+ArduinoMillis ms;
+VolatileRTCClock rtc;
+StdRNG fast_rng;
+
+MyMesh disp(board, radio_driver, ms, fast_rng, rtc);
 
 int main () {
   using namespace std::chrono_literals;
@@ -26,14 +36,29 @@ int main () {
   printf("Boost has serial port!\r\n");
   #endif
 
-  Serial.open(SERIAL_PORT);
   PCFileSystem.begin("MeshTNC.data/");
+  Serial.open(SERIAL_PORT);
 
-  //CLIMode cli_mode = CLIMode::KISS;
-  //mesh::Dispatcher disp = mesh::Dispatcher();
+  CLIMode cli_mode = CLIMode::KISS;
   
-  //KISSModem kiss = KISSModem(&cli_mode, &dispatcher);
-  
+  KISSModem kiss = KISSModem(&cli_mode, &disp);
+
+  board.begin();
+
+  if (!radio_init()) { exit(1); }
+
+  fast_rng.begin(radio_get_rng_seed());
+
+  disp.begin(&PCFileSystem);
+
+  while (true) {
+    if (Serial.available())
+      disp.handleSerialData();
+    disp.loop();
+  }
+
+// going to reuse this later for the actual test harness
+/*
   std::string command("get radio");
 
   std::cout << "Sending command: " << command << std::endl;
@@ -58,6 +83,7 @@ int main () {
     }
   }
   std::cout << rx << std::endl;
+*/
 
   Serial.close();
 
