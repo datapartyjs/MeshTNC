@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MeshTNC.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -7,7 +9,7 @@
 #define TXT_TYPE_CLI_DATA       1    // a CLI command
 #define TXT_TYPE_SIGNED_PLAIN   2    // plain text, signed by sender
 
-class StrHelper {
+extern class MESHTNC_EXPORTS StrHelper {
 public:
   static void strncpy(char* dest, const char* src, size_t buf_sz);
   static void strzcpy(char* dest, const char* src, size_t buf_sz);   // pads with trailing nulls
