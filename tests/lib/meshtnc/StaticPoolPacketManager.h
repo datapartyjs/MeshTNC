@@ -18,7 +18,7 @@ public:
   mesh::Packet* removeByIdx(int i);
 };
 
-class StaticPoolPacketManager : public mesh::PacketManager {
+extern class MESHTNC_EXPORTS StaticPoolPacketManager : public mesh::PacketManager {
   PacketQueue unused, send_queue, rx_queue;
 
 public:
