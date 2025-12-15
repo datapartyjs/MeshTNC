@@ -1,5 +1,25 @@
 #include "DateTime.h"
 
+class PCMillis {
+  time_point<high_resolution_clock> _start;
+public:
+  PCMillis() {
+    _start = high_resolution_clock::now();
+  };
+  unsigned long millis() {
+    auto ns = high_resolution_clock::now() - _start;
+    unsigned long ms = ns.count() / 1000;
+    return ms;
+  }
+};
+
+PCMillis _millis = PCMillis();
+AutoDiscoverRTCClock rtc_clock = AutoDiscoverRTCClock();
+
+unsigned long millis() {
+  return _millis.millis();
+}
+
 uint32_t AutoDiscoverRTCClock::getCurrentTime() {
   return std::time(nullptr);
 }
