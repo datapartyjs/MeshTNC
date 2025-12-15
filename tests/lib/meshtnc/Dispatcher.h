@@ -1,16 +1,20 @@
 #pragma once
 
-#include <MeshCore.h>
-#include <Packet.h>
-#include <Utils.h>
+#include "MeshCore.h"
+#include "Packet.h"
+#include "Utils.h"
 #include <string.h>
+
+#ifndef ARDUINO
+#include "MeshTNC.h"
+#endif
 
 namespace mesh {
 
 /**
  * \brief  Abstraction of local/volatile clock with Millisecond granularity.
 */
-class MillisecondClock {
+extern class MESHTNC_EXPORTS MillisecondClock {
 public:
   virtual unsigned long getMillis() = 0;
 };
@@ -18,7 +22,7 @@ public:
 /**
  * \brief  Abstraction of this device's packet radio.
 */
-class Radio {
+extern class MESHTNC_EXPORTS Radio {
 public:
   virtual void begin() { }
 
@@ -81,7 +85,7 @@ public:
  * \brief  An abstraction for managing instances of Packets (eg. in a static pool),
  *        and for managing the outbound packet queue.
 */
-class PacketManager {
+extern class MESHTNC_EXPORTS PacketManager {
 public:
   virtual Packet* allocNew() = 0;
   virtual void free(Packet* packet) = 0;
@@ -111,7 +115,7 @@ typedef uint32_t  DispatcherAction;
  * \brief  The low-level task that manages detecting incoming Packets, and the queueing
  *      and scheduling of outbound Packets.
 */
-class Dispatcher {
+extern class MESHTNC_EXPORTS Dispatcher {
   Packet* outbound;  // current outbound packet
   unsigned long outbound_expiry, outbound_start, total_air_time;
   unsigned long next_tx_time;
