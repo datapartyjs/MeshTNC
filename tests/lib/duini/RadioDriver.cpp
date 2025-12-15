@@ -18,7 +18,7 @@ extern uint32_t DUINI_EXPORTS radio_get_rng_seed() {
   return val;
 }
 
-void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) { 
+extern void DUINI_EXPORTS radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) { 
   /*
   radio.setFrequency(freq);
   radio.setSpreadingFactor(sf);
@@ -32,5 +32,5 @@ void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync
 
 extern void DUINI_EXPORTS radio_set_tx_power(uint8_t dbm) {
   //radio.setOutputPower(dbm);
-  std::cerr << "Called radio_set_tx_poert(" << dbm << ")" << std::endl;
+  std::cerr << "Called radio_set_tx_power(" << dbm << ")" << std::endl;
 }
