@@ -9,7 +9,7 @@
 
 # get a list of pio env names that start with "env:"
 get_pio_envs() {
-  echo $(pio project config | grep 'env:' | sed 's/env://')
+  echo $(pio project config | grep '^env:' | sed 's/env://')
 }
 
 # $1 should be the string to find (case insensitive)
