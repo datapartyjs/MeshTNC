@@ -53,7 +53,8 @@ build_firmware() {
   pio run -e $1
 
   # build merge-bin for esp32 fresh install
-  if [ -f .pio/build/$1/firmware.bin ]; then
+  # only when "mergebin" is in targets
+  if pio run --list-targets -e $1 | grep mergebin; then
     pio run -t mergebin -e $1
   fi
 
