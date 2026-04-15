@@ -9,7 +9,7 @@
 
 # get a list of pio env names that start with "env:"
 get_pio_envs() {
-  echo $(pio project config | grep 'env:' | sed 's/env://')
+  echo $(pio project config | grep '^env:' | sed 's/env://')
 }
 
 # $1 should be the string to find (case insensitive)
@@ -53,13 +53,18 @@ build_firmware() {
   pio run -e $1
 
   # build merge-bin for esp32 fresh install
-  if [ -f .pio/build/$1/firmware.bin ]; then
+  # only when "mergebin" is in targets
+  if pio run --list-targets -e $1 | grep mergebin; then
     pio run -t mergebin -e $1
   fi
 
   # build .uf2 for nrf52 boards
   if [[ -f .pio/build/$1/firmware.zip && -f .pio/build/$1/firmware.hex ]]; then
-    python bin/uf2conv/uf2conv.py .pio/build/$1/firmware.hex -c -o .pio/build/$1/firmware.uf2 -f 0xADA52840
+    if python3 -V ; then
+      python3 bin/uf2conv/uf2conv.py .pio/build/$1/firmware.hex -c -o .pio/build/$1/firmware.uf2 -f 0xADA52840
+    else # fall back to python command (may be needed on windows)
+      python bin/uf2conv/uf2conv.py .pio/build/$1/firmware.hex -c -o .pio/build/$1/firmware.uf2 -f 0xADA52840
+    fi
   fi
 
   # copy .bin, .uf2, and .zip to out folder
