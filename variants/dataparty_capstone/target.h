@@ -1,0 +1,21 @@
+#pragma once
+
+#define RADIOLIB_STATIC_ONLY 1
+#include <RadioLib.h>
+#include <helpers/radiolib/RadioLibWrappers.h>
+#include <helpers/ESP32Board.h>
+#include <helpers/AutoDiscoverRTCClock.h>
+
+// Both radios are present on the Capstone board.
+// RADIO_CLASS / WRAPPER_CLASS selects which is the active mesh radio per build.
+#include <helpers/radiolib/CustomSX1281Wrapper.h>
+#include <helpers/radiolib/CustomSX1276Wrapper.h>
+
+extern ESP32Board board;
+extern WRAPPER_CLASS radio_driver;
+extern AutoDiscoverRTCClock rtc_clock;
+
+bool radio_init();
+uint32_t radio_get_rng_seed();
+void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord);
+void radio_set_tx_power(uint8_t dbm);
