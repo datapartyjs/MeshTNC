@@ -70,6 +70,14 @@ uint32_t radio_get_rng_seed() {
 }
 
 void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
+  if(freq > 2000.f){
+    active_radio = &radio_driver_2ghz;
+    digitalWrite(P_SX1281_RF_SW, LOW);   // J2 → RF2 → AT2401C → SX1281
+  } else {
+    active_radio = &radio_driver_915;
+    digitalWrite(P_SX1281_RF_SW, HIGH);  // J2 → RF1 → U6 → SX1276
+  }
+
   if (active_radio == &radio_driver_2ghz) {
     radio_sx1281.setFrequency(freq);
     radio_sx1281.setSpreadingFactor(sf);
