@@ -4,15 +4,25 @@
 #include <RadioLib.h>
 #include <helpers/radiolib/RadioLibWrappers.h>
 #include <helpers/ESP32Board.h>
-#include <helpers/AutoDiscoverRTCClock.h>
-
-// Both radios are present on the Capstone board.
-// RADIO_CLASS / WRAPPER_CLASS selects which is the active mesh radio per build.
 #include <helpers/radiolib/CustomSX1281Wrapper.h>
 #include <helpers/radiolib/CustomSX1276Wrapper.h>
+#include <helpers/AutoDiscoverRTCClock.h>
 
 extern ESP32Board board;
-extern WRAPPER_CLASS radio_driver;
+
+// Both radio instances — same PCB, RF switch selects active antenna path
+extern CustomSX1281 radio_sx1281;
+extern CustomSX1276 radio_sx1276;
+
+extern CustomSX1281Wrapper radio_driver_2ghz;
+extern CustomSX1276Wrapper radio_driver_915;
+
+// Pointer to the currently active mesh radio — swap to switch bands
+extern RadioLibWrapper* active_radio;
+
+// Alias used by simple_repeater/main.cpp which expects radio_driver by name
+#define radio_driver (*active_radio)
+
 extern AutoDiscoverRTCClock rtc_clock;
 
 bool radio_init();

@@ -10,43 +10,26 @@ class CustomSX1281 : public SX1281 {
 public:
   CustomSX1281(Module *mod) : SX1281(mod) { }
 
-  bool std_init(SPIClass* spi = NULL) {
-#ifdef LORA_CR
-    uint8_t cr = LORA_CR;
-#else
-    uint8_t cr = 7;  // 4/7 coding rate, typical for 2.4GHz LoRa
-#endif
-
-#if defined(P_LORA_SCLK)
-    if (spi) spi->begin(P_LORA_SCLK, P_LORA_MISO, P_LORA_MOSI);
-#endif
+  // Parameters explicit — no build-flag dependency for frequency/BW/SF/CR/power.
+  // Defaults: 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm — standard 2.4GHz LoRa mesh.
+  bool std_init(float freq = 2400.0, float bw = 812.5, uint8_t sf = 9,
+                uint8_t cr = 7, int8_t power = 20, SPIClass* spi = NULL) {
+    if (spi) spi->begin(P_SX1281_SCLK, P_SX1281_MISO, P_SX1281_MOSI);
 
     // SX128x begin(): freq (MHz), bw (kHz), sf, cr, power (dBm), preambleLength
-    // Valid BW values: 203.125, 406.25, 812.5, 1625.0 kHz
-    int status = begin(LORA_FREQ, LORA_BW, LORA_SF, cr, LORA_TX_POWER, 12);
+    // Valid BW: 203.125, 406.25, 812.5, 1625.0 kHz
+    int status = begin(freq, bw, sf, cr, power, 12);
     if (status != RADIOLIB_ERR_NONE) {
       Serial.print("ERROR: SX1281 init failed: ");
       Serial.println(status);
       return false;
     }
 
-    // Set private LoRa sync word (matches SX127x/SX126x 0x12 convention)
+    // Private LoRa sync word (matches SX127x/SX126x 0x12 convention)
     setLoRaSyncWord(0x12);
     setCRC(2);  // 2-byte CRC
 
-#ifdef SX128X_CURRENT_LIMIT
-    setCurrentLimit(SX128X_CURRENT_LIMIT);
-#endif
-
-#if defined(SX128X_RXEN) || defined(SX128X_TXEN)
-  #ifndef SX128X_RXEN
-    #define SX128X_RXEN RADIOLIB_NC
-  #endif
-  #ifndef SX128X_TXEN
-    #define SX128X_TXEN RADIOLIB_NC
-  #endif
-    setRfSwitchPins(SX128X_RXEN, SX128X_TXEN);
-#endif
+    setRfSwitchPins(P_SX1281_RXEN, P_SX1281_TXEN);
 
     return true;
   }
@@ -63,7 +46,7 @@ public:
     return (irq & SX128X_IRQ_HEADER_VALID) || (irq & SX128X_IRQ_PREAMBLE_DETECTED);
   }
 
-  // Bridge setSyncWord() → setLoRaSyncWord() so generic target.cpp works unchanged
+  // Bridge setSyncWord() → setLoRaSyncWord() so radio_set_params() works unchanged
   int16_t setSyncWord(uint8_t syncWord) {
     return setLoRaSyncWord(syncWord);
   }
