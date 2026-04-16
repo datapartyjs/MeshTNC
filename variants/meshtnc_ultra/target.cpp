@@ -4,6 +4,7 @@
 ESP32Board board;
 
 // --- SX1281 2.4GHz (SPI2) ---
+// Both radio NRESETs are tied to CHIP_PU (hardware reset line), not a GPIO — RADIOLIB_NC correct.
 static SPIClass spi_sx1281;
 CustomSX1281 radio_sx1281(new Module(P_SX1281_NSS, P_SX1281_DIO1, RADIOLIB_NC, P_SX1281_BUSY, spi_sx1281));
 CustomSX1281Wrapper radio_driver_2ghz(radio_sx1281, board);
@@ -22,6 +23,11 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
 bool radio_init() {
   fallback_clock.begin();
   rtc_clock.begin(Wire);
+
+  // U8 RFASWA630ATF09 coax switch: LOW → RF2 → SX1281/AT2401C path; HIGH → RF1 → SX1276 path
+  // Default to SX1281 path while both radios initialize.
+  pinMode(P_SX1281_RF_SW, OUTPUT);
+  digitalWrite(P_SX1281_RF_SW, LOW);
 
   // Init SX1281 — 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm
   bool ok_2ghz = radio_sx1281.std_init(2400.0, 812.5, 9, 7, 20, &spi_sx1281);
@@ -43,10 +49,13 @@ bool radio_init() {
   }
 
   // Select active radio: prefer 2.4GHz, fall back to 915MHz
+  // Route J2 coax to the winning radio via U8.
   if (ok_2ghz) {
     active_radio = &radio_driver_2ghz;
+    digitalWrite(P_SX1281_RF_SW, LOW);   // J2 → RF2 → AT2401C → SX1281
   } else if (ok_915) {
     active_radio = &radio_driver_915;
+    digitalWrite(P_SX1281_RF_SW, HIGH);  // J2 → RF1 → U6 → SX1276
   } else {
     return false;  // both radios failed
   }
