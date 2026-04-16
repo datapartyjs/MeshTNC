@@ -39,8 +39,8 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
 
-          # Find variant directories that contain changed files
-          VARIANTS=$(echo "$CHANGED" | grep '^variants/' | cut -d'/' -f2 | sort -u)
+          # Find variant directories that contain changed files (|| true: grep exits 1 on no match)
+          VARIANTS=$(echo "$CHANGED" | grep '^variants/' | cut -d'/' -f2 | sort -u || true)
 
           # Collect env names from each affected variant's platformio.ini
           ENVS=()
