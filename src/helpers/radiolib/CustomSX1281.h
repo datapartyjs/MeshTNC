@@ -26,7 +26,7 @@ public:
     }
 
     // Private LoRa sync word (matches SX127x/SX126x 0x12 convention)
-    setLoRaSyncWord(0x12);
+    setSyncWord(0x12);
     setCRC(2);  // 2-byte CRC
 
     setRfSwitchPins(P_SX1281_RXEN, P_SX1281_TXEN);
@@ -34,20 +34,14 @@ public:
     return true;
   }
 
-  // Pull IRQ status register — SX128x uses getIrqStatus(uint16_t*)
-  uint16_t getIrqFlags() {
-    uint16_t irq = 0;
-    SX128x::getIrqStatus(&irq);
-    return irq;
+  // Pull IRQ status register — RadioLib 7.x: getIrqStatus() returns value directly
+  uint32_t getIrqFlags() override {
+    return (uint32_t)SX128x::getIrqStatus();
   }
 
   bool isReceiving() {
-    uint16_t irq = getIrqFlags();
+    uint32_t irq = getIrqFlags();
     return (irq & SX128X_IRQ_HEADER_VALID) || (irq & SX128X_IRQ_PREAMBLE_DETECTED);
   }
 
-  // Bridge setSyncWord() → setLoRaSyncWord() so radio_set_params() works unchanged
-  int16_t setSyncWord(uint8_t syncWord) {
-    return setLoRaSyncWord(syncWord);
-  }
 };
