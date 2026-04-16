@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - '**'
+
+jobs:
+
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      count: ${{ steps.detect.outputs.count }}
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect affected environments
+        id: detect
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          # New branch — no previous commit; fall back to merge-base with main
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            BASE=$(git merge-base HEAD origin/main 2>/dev/null || git rev-parse HEAD^1)
+          fi
+
+          CHANGED=$(git diff --name-only "$BASE" HEAD)
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          # Find variant directories that contain changed files
+          VARIANTS=$(echo "$CHANGED" | grep '^variants/' | cut -d'/' -f2 | sort -u)
+
+          # Collect env names from each affected variant's platformio.ini
+          ENVS=()
+          for variant in $VARIANTS; do
+            ini="variants/$variant/platformio.ini"
+            if [ -f "$ini" ]; then
+              while IFS= read -r env_name; do
+                ENVS+=("$env_name")
+              done < <(grep '^\[env:' "$ini" | sed 's/\[env:\(.*\)\]/\1/')
+            fi
+          done
+
+          COUNT=${#ENVS[@]}
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo 'matrix={"env":[]}' >> $GITHUB_OUTPUT
+            echo "No affected variant environments detected — skipping build."
+          else
+            JSON=$(printf '%s\n' "${ENVS[@]}" | jq -R . | jq -sc '{env:.}')
+            echo "matrix=$JSON" >> $GITHUB_OUTPUT
+            echo "Environments to build: $JSON"
+          fi
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build ${{ matrix.env }}
+        env:
+          FIRMWARE_VERSION: dev
+        run: bash build.sh build-firmware ${{ matrix.env }}
