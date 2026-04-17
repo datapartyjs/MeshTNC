@@ -20,14 +20,20 @@ RadioLibWrapper* active_radio = &radio_driver_2ghz;
 ESP32RTCClock fallback_clock;
 AutoDiscoverRTCClock rtc_clock(fallback_clock);
 
+// Set active radio and route J2 coax via U8 RFASWA630ATF09:
+//   LOW  → RF2 → AT2401C → SX1281 (2.4GHz)
+//   HIGH → RF1 → U6      → SX1276 (915MHz)
+static void select_radio(RadioLibWrapper* r) {
+  active_radio = r;
+  digitalWrite(P_SX1281_RF_SW, (r == &radio_driver_2ghz) ? LOW : HIGH);
+}
+
 bool radio_init() {
   fallback_clock.begin();
   rtc_clock.begin(Wire);
 
-  // U8 RFASWA630ATF09 coax switch: LOW → RF2 → SX1281/AT2401C path; HIGH → RF1 → SX1276 path
-  // Default to SX1281 path while both radios initialize.
   pinMode(P_SX1281_RF_SW, OUTPUT);
-  digitalWrite(P_SX1281_RF_SW, LOW);
+  select_radio(&radio_driver_2ghz);  // default to 2.4GHz path during init
 
   // Init SX1281 — 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm
   bool ok_2ghz = radio_sx1281.std_init(2400.0, 812.5, 9, 7, 20, &spi_sx1281);
@@ -48,14 +54,11 @@ bool radio_init() {
     Serial.println(status_915);
   }
 
-  // Select active radio: prefer 2.4GHz, fall back to 915MHz
-  // Route J2 coax to the winning radio via U8.
+  // Prefer 2.4GHz, fall back to 915MHz
   if (ok_2ghz) {
-    active_radio = &radio_driver_2ghz;
-    digitalWrite(P_SX1281_RF_SW, LOW);   // J2 → RF2 → AT2401C → SX1281
+    select_radio(&radio_driver_2ghz);
   } else if (ok_915) {
-    active_radio = &radio_driver_915;
-    digitalWrite(P_SX1281_RF_SW, HIGH);  // J2 → RF1 → U6 → SX1276
+    select_radio(&radio_driver_915);
   } else {
     return false;  // both radios failed
   }
@@ -70,13 +73,7 @@ uint32_t radio_get_rng_seed() {
 }
 
 void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
-  if(freq > 2000.f){
-    active_radio = &radio_driver_2ghz;
-    digitalWrite(P_SX1281_RF_SW, LOW);   // J2 → RF2 → AT2401C → SX1281
-  } else {
-    active_radio = &radio_driver_915;
-    digitalWrite(P_SX1281_RF_SW, HIGH);  // J2 → RF1 → U6 → SX1276
-  }
+  select_radio(freq > 2000.f ? &radio_driver_2ghz : &radio_driver_915);
 
   if (active_radio == &radio_driver_2ghz) {
     radio_sx1281.setFrequency(freq);
