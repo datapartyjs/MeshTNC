@@ -375,6 +375,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
 
+  Serial.println("MeshTNC alive baby!");
+
   board.begin();
 
   if (!radio_init()) { halt(); }

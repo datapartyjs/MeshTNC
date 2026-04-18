@@ -14,16 +14,21 @@ public:
   // Defaults: 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm — standard 2.4GHz LoRa mesh.
   bool std_init(float freq = 2400.0, float bw = 812.5, uint8_t sf = 9,
                 uint8_t cr = 7, int8_t power = 20, SPIClass* spi = NULL) {
+
+    Serial.println("SX1281::stdinit spi->begin");
     if (spi) spi->begin(P_SX1281_SCLK, P_SX1281_MISO, P_SX1281_MOSI);
 
     // SX128x begin(): freq (MHz), bw (kHz), sf, cr, power (dBm), preambleLength
     // Valid BW: 203.125, 406.25, 812.5, 1625.0 kHz
+    Serial.println("SX1281::stdinit begin");
     int status = begin(freq, bw, sf, cr, power, 12);
     if (status != RADIOLIB_ERR_NONE) {
-      Serial1.print("ERROR: SX1281 init failed: ");
-      Serial1.println(status);
+      Serial.print("ERROR: SX1281 init failed: ");
+      Serial.println(status);
       return false;
     }
+
+    Serial.println("SX1281::stdinit twiddle settings");
 
     // Private LoRa sync word (matches SX127x/SX126x 0x12 convention)
     setSyncWord(0x12);

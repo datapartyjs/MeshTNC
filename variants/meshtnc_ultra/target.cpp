@@ -36,9 +36,11 @@ bool radio_init() {
   select_radio(&radio_driver_2ghz);  // default to 2.4GHz path during init
 
   // Init SX1281 — 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm
-  bool ok_2ghz = radio_sx1281.std_init(2400.0, 812.5, 9, 7, 20, &spi_sx1281);
+  bool ok_2ghz = radio_sx1281.std_init(2400.0, 203.0f, 9, 7, 20, &spi_sx1281);
   if (!ok_2ghz) {
-    Serial1.println("WARN: SX1281 2.4GHz init failed, falling back to SX1276 915MHz");
+    Serial.println("WARN: SX1281 2.4GHz init failed, falling back to SX1276 915MHz");
+  } else {
+    Serial.println("SX1281 ready");
   }
 
   // Init SX1276 — 915 MHz, 250 kHz BW, SF10, CR4/5, 20 dBm
@@ -49,9 +51,10 @@ bool radio_init() {
   if (ok_915) {
     radio_sx1276.setCurrentLimit(120);
     radio_sx1276.setCRC(1);
+    Serial.println("SX1276 ready");
   } else {
-    Serial1.print("WARN: SX1276 915MHz init failed: ");
-    Serial1.println(status_915);
+    Serial.print("WARN: SX1276 915MHz init failed: ");
+    Serial.println(status_915);
   }
 
   // Prefer 2.4GHz, fall back to 915MHz
@@ -73,7 +76,7 @@ uint32_t radio_get_rng_seed() {
 }
 
 void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
-  select_radio(freq > 2000.f ? &radio_driver_2ghz : &radio_driver_915);
+  select_radio(freq > 2000.f ? (RadioLibWrapper*) &radio_driver_2ghz : (RadioLibWrapper*) &radio_driver_915);
 
   if (active_radio == &radio_driver_2ghz) {
     radio_sx1281.setFrequency(freq);
