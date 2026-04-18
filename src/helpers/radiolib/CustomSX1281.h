@@ -20,8 +20,8 @@ public:
     // Valid BW: 203.125, 406.25, 812.5, 1625.0 kHz
     int status = begin(freq, bw, sf, cr, power, 12);
     if (status != RADIOLIB_ERR_NONE) {
-      Serial.print("ERROR: SX1281 init failed: ");
-      Serial.println(status);
+      Serial1.print("ERROR: SX1281 init failed: ");
+      Serial1.println(status);
       return false;
     }
 

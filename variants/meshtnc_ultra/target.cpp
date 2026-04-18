@@ -3,14 +3,14 @@
 
 ESP32Board board;
 
-// --- SX1281 2.4GHz (SPI2) ---
+// --- SX1281 2.4GHz (SPI2 / FSPI) ---
 // Both radio NRESETs are tied to CHIP_PU (hardware reset line), not a GPIO — RADIOLIB_NC correct.
-static SPIClass spi_sx1281;
+static SPIClass spi_sx1281(FSPI);
 CustomSX1281 radio_sx1281(new Module(P_SX1281_NSS, P_SX1281_DIO1, RADIOLIB_NC, P_SX1281_BUSY, spi_sx1281));
 CustomSX1281Wrapper radio_driver_2ghz(radio_sx1281, board);
 
-// --- SX1276 915MHz (SPI3) ---
-static SPIClass spi_sx1276;
+// --- SX1276 915MHz (SPI3 / HSPI) ---
+static SPIClass spi_sx1276(HSPI);
 CustomSX1276 radio_sx1276(new Module(P_SX1276_NSS, P_SX1276_DIO0, RADIOLIB_NC, P_SX1276_DIO1, spi_sx1276));
 CustomSX1276Wrapper radio_driver_915(radio_sx1276, board);
 
@@ -38,7 +38,7 @@ bool radio_init() {
   // Init SX1281 — 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm
   bool ok_2ghz = radio_sx1281.std_init(2400.0, 812.5, 9, 7, 20, &spi_sx1281);
   if (!ok_2ghz) {
-    Serial.println("WARN: SX1281 2.4GHz init failed, falling back to SX1276 915MHz");
+    Serial1.println("WARN: SX1281 2.4GHz init failed, falling back to SX1276 915MHz");
   }
 
   // Init SX1276 — 915 MHz, 250 kHz BW, SF10, CR4/5, 20 dBm
@@ -50,8 +50,8 @@ bool radio_init() {
     radio_sx1276.setCurrentLimit(120);
     radio_sx1276.setCRC(1);
   } else {
-    Serial.print("WARN: SX1276 915MHz init failed: ");
-    Serial.println(status_915);
+    Serial1.print("WARN: SX1276 915MHz init failed: ");
+    Serial1.println(status_915);
   }
 
   // Prefer 2.4GHz, fall back to 915MHz
