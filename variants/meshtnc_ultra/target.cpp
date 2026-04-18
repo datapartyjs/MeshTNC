@@ -45,6 +45,29 @@ bool radio_init() {
 
   // Init SX1276 — 915 MHz, 250 kHz BW, SF10, CR4/5, 20 dBm
   spi_sx1276.begin(P_SX1276_SCLK, P_SX1276_MISO, P_SX1276_MOSI);
+
+  // Pre-warm SX1276 crystal oscillator. RadioLib's begin() transitions
+  // LoRa sleep → standby in ~20µs; crystal cold-start needs ~2ms. Fix:
+  // manually step FSK sleep → LoRa sleep (5ms startup) → LoRa standby
+  // so crystal is oscillating when begin() is called. begin() re-sleeps
+  // the chip for only ~20µs — crystal is at ~82% amplitude and restarts
+  // instantly (decay constant τ ≈ 100µs for a 32MHz crystal).
+  {
+    auto wr = [&](uint8_t val) {
+      digitalWrite(P_SX1276_NSS, LOW);
+      spi_sx1276.transfer(0x81);   // write OpMode register (0x01 | 0x80)
+      spi_sx1276.transfer(val);
+      digitalWrite(P_SX1276_NSS, HIGH);
+    };
+    pinMode(P_SX1276_NSS, OUTPUT);
+    digitalWrite(P_SX1276_NSS, HIGH);
+    spi_sx1276.beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
+    wr(0x08);  delay(2);  // FSK sleep
+    wr(0x88);  delay(5);  // LoRa sleep — crystal starts
+    wr(0x89);  delay(2);  // LoRa standby — crystal oscillating
+    spi_sx1276.endTransaction();
+  }
+
   int status_915 = radio_sx1276.begin(915.0, 250.0, 10, 5,
                                       RADIOLIB_SX127X_SYNC_WORD, 20, 16);
   bool ok_915 = (status_915 == RADIOLIB_ERR_NONE);
