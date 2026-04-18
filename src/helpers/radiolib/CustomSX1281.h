@@ -6,9 +6,12 @@
 #define SX128X_IRQ_HEADER_VALID       0x0010  // LoRa header received and valid
 #define SX128X_IRQ_PREAMBLE_DETECTED  0x4000  // LoRa preamble detected
 
-class CustomSX1281 : public SX1281 {
+// SX1280 and SX1281 share the same die. Physical parts report "SX1280 V3B" in the
+// version string regardless of package markings. SX1281 class requires "SX1281" match
+// and will fail. SX1280 is the correct base class.
+class CustomSX1281 : public SX1280 {
 public:
-  CustomSX1281(Module *mod) : SX1281(mod) { }
+  CustomSX1281(Module *mod) : SX1280(mod) { }
 
   // Parameters explicit — no build-flag dependency for frequency/BW/SF/CR/power.
   // Defaults: 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm — standard 2.4GHz LoRa mesh.
