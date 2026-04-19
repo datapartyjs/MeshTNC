@@ -21,6 +21,22 @@ public:
     Serial.println("SX1281::stdinit spi->begin");
     if (spi) spi->begin(P_SX1281_SCLK, P_SX1281_MISO, P_SX1281_MOSI);
 
+    // NSS wakeup pulse: SX128x exits sleep on NSS assert. Also waits for BUSY LOW
+    // (power-on OTP load takes ~3.2ms; RadioLib's begin() times out if called while HIGH).
+    pinMode(P_SX1281_NSS, OUTPUT);
+    digitalWrite(P_SX1281_NSS, HIGH);
+    digitalWrite(P_SX1281_NSS, LOW);
+    delayMicroseconds(100);
+    digitalWrite(P_SX1281_NSS, HIGH);
+    unsigned long t0 = millis();
+    while (digitalRead(P_SX1281_BUSY) == HIGH) {
+      if (millis() - t0 > 10) {
+        Serial.println("ERROR: SX1281 BUSY stuck HIGH — no power or hardware fault");
+        return false;
+      }
+    }
+    Serial.println("SX1281 BUSY LOW — chip ready");
+
     // SX128x begin(): freq (MHz), bw (kHz), sf, cr, power (dBm), preambleLength
     // Valid BW: 203.125, 406.25, 812.5, 1625.0 kHz
     Serial.println("SX1281::stdinit begin");
