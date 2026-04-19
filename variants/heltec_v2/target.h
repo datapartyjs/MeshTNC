@@ -1,7 +1,7 @@
 #pragma once
 
 #define RADIOLIB_STATIC_ONLY 1
-#include <RadioLib.h>
+#include <Preamble.h>
 #include <helpers/radiolib/RadioLibWrappers.h>
 #include <helpers/HeltecV2Board.h>
 #include <helpers/radiolib/CustomSX1276Wrapper.h>

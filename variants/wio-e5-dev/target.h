@@ -1,7 +1,7 @@
 #pragma once
 
 #define RADIOLIB_STATIC_ONLY 1
-#include <RadioLib.h>
+#include <Preamble.h>
 #include <helpers/radiolib/RadioLibWrappers.h>
 #include <helpers/stm32/STM32Board.h>
 #include <helpers/radiolib/CustomSTM32WLxWrapper.h>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <RadioLib.h>
+#include <Preamble.h>
 
 #define LR1110_IRQ_HAS_PREAMBLE                     0b0000000100  //  4     4     valid LoRa header received
 #define LR1110_IRQ_HEADER_VALID                     0b0000010000  //  4     4     valid LoRa header received

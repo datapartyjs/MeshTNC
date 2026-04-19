@@ -1,6 +1,6 @@
 #pragma once
 
-#include <RadioLib.h>
+#include <Preamble.h>
 
 // SX128x LoRa IRQ flag bits (SX128x datasheet Table 11-76)
 #define SX128X_IRQ_HEADER_VALID       0x0010  // LoRa header received and valid

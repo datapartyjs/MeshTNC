@@ -2,7 +2,7 @@
 
 #define RADIOLIB_STATIC_ONLY 1
 #include <MinewsemiME25LS01Board.h>
-#include <RadioLib.h>
+#include <Preamble.h>
 #include <helpers/radiolib/RadioLibWrappers.h>
 #include <helpers/radiolib/CustomLR1110Wrapper.h>
 #include <helpers/ArduinoHelpers.h>

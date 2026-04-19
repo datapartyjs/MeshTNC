@@ -1,7 +1,7 @@
 #pragma once
 
 #define RADIOLIB_STATIC_ONLY 1
-#include <RadioLib.h>
+#include <Preamble.h>
 #include <helpers/radiolib/RadioLibWrappers.h>
 #include "T1000eBoard.h"
 #include <helpers/radiolib/CustomLR1110Wrapper.h>

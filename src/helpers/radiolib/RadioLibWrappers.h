@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Mesh.h>
-#include <RadioLib.h>
+#include <Preamble.h>
 
 class RadioLibWrapper : public mesh::Radio {
 protected:
