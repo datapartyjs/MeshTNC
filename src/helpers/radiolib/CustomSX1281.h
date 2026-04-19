@@ -49,13 +49,39 @@ public:
       Serial.println("SX1281 BUSY LOW — chip ready");
     }
 
+    // Snap bw to nearest valid SX128x LoRa BW: 203.125, 406.25, 812.5, 1625.0 kHz
+    {
+      static const float valid_bw[] = { 203.125f, 406.25f, 812.5f, 1625.0f };
+      float snapped = valid_bw[0];
+      float best = fabsf(bw - valid_bw[0]);
+      for (int i = 1; i < 4; i++) {
+        float d = fabsf(bw - valid_bw[i]);
+        if (d < best) { best = d; snapped = valid_bw[i]; }
+      }
+      if (snapped != bw) {
+        Serial.print("WARN: SX1281 BW ");  Serial.print(bw);
+        Serial.print(" -> ");              Serial.print(snapped);
+        Serial.println(" kHz");
+        bw = snapped;
+      }
+    }
+
     // SX128x begin(): freq (MHz), bw (kHz), sf, cr, power (dBm), preambleLength
-    // Valid BW: 203.125, 406.25, 812.5, 1625.0 kHz
     Serial.println("SX1281::stdinit begin");
     int status = begin(freq, bw, sf, cr, power, 12);
     if (status != RADIOLIB_ERR_NONE) {
       Serial.print("ERROR: SX1281 init failed: ");
-      Serial.println(status);
+      Serial.print(status);
+      switch (status) {
+        case RADIOLIB_ERR_CHIP_NOT_FOUND:        Serial.println(" (CHIP_NOT_FOUND — SPI or power fault)"); break;
+        case RADIOLIB_ERR_INVALID_BANDWIDTH:     Serial.println(" (INVALID_BANDWIDTH)"); break;
+        case RADIOLIB_ERR_INVALID_SPREADING_FACTOR: Serial.println(" (INVALID_SPREADING_FACTOR)"); break;
+        case RADIOLIB_ERR_INVALID_CODING_RATE:   Serial.println(" (INVALID_CODING_RATE)"); break;
+        case RADIOLIB_ERR_INVALID_FREQUENCY:     Serial.println(" (INVALID_FREQUENCY)"); break;
+        case RADIOLIB_ERR_INVALID_OUTPUT_POWER:  Serial.println(" (INVALID_OUTPUT_POWER)"); break;
+        case RADIOLIB_ERR_SPI_CMD_TIMEOUT:       Serial.println(" (SPI_CMD_TIMEOUT)"); break;
+        default:                                 Serial.println();
+      }
       return false;
     }
 

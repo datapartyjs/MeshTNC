@@ -35,8 +35,8 @@ bool radio_init() {
   pinMode(P_SX1281_RF_SW, OUTPUT);
   select_radio(&radio_driver_2ghz);  // default to 2.4GHz path during init
 
-  // Init SX1281 — 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm
-  bool ok_2ghz = radio_sx1281.std_init(2400.0, 203.0f, 9, 7, 20, &spi_sx1281);
+  // Init SX1281 — 2400 MHz, 203.125 kHz BW, SF9, CR4/7, 20 dBm
+  bool ok_2ghz = radio_sx1281.std_init(2400.0, 203.125f, 9, 7, 20, &spi_sx1281);
   if (!ok_2ghz) {
     Serial.println("WARN: SX1281 2.4GHz init failed, falling back to SX1276 915MHz");
   } else {
