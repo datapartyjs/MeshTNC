@@ -17,10 +17,22 @@ MeshTNC is a tool for piping LoRa data to and from consumer grade radios.
  - KISS-TNC mode
 
 ## Compiling
+
+### Using PlatformIO plugin for Visual Studio Code
+
 - Install [PlatformIO](https://docs.platformio.org) in [Visual Studio Code](https://code.visualstudio.com).
 - Clone and open the MeshTNC repository in Visual Studio Code.
 - See the example applications you can modify and run:
   - [Simple Repeater](./examples/simple_repeater)
+
+### Using Command line
+
+- Install [PlatformIO Core CLI](https://docs.platformio.org)
+- Clone and open the MeshTNC repository in the shell of your choice
+- Find the environment name from the 'platform.ini' file in the 'variants' directory for your device
+  - or find device in output of `pio project config | grep '^env:'`
+- Build the individual firmware `export FIRMWARE_VERSION="localbuild" ; ./build firmware <device-environment-name>`
+- Find the firmware image in the 'out' directory
 
 ## Flashing
 
@@ -120,7 +132,7 @@ KISS mode allows for operating the LoRA radio as a KISS modem, which makes it co
 
 ## APRS over LoRa
 
-<img src="https://github.com/user-attachments/assets/ca4e8caf-5eff-44d3-8ff0-c9d57bfc6ca3" width="40%"></img> <img src="https://github.com/user-attachments/assets/aa4506dd-34b6-4277-af8e-3470ef8f8dfa" width="40%"></img> 
+<img src="https://github.com/user-attachments/assets/ca4e8caf-5eff-44d3-8ff0-c9d57bfc6ca3" width="40%"></img> <img src="https://github.com/user-attachments/assets/aa4506dd-34b6-4277-af8e-3470ef8f8dfa" width="40%"></img>
 
 You can use your favorite APRS tools with MeshTNC. Simply select a frequency, place the radio into kiss mode and connect to your APRS tools as a KISS TNC device.
 
