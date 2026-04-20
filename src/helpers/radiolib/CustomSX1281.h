@@ -22,28 +22,15 @@ public:
     if (spi) spi->begin(P_SX1281_SCLK, P_SX1281_MISO, P_SX1281_MOSI);
 
     // Wait for BUSY LOW before RadioLib begin(). At power-on, BUSY is HIGH ~3ms (OTP load).
-    // If still HIGH after 50ms the chip is in sleep — send NOP (0xC0) to wake it.
-    // Do NOT send a bare NSS pulse without a command byte: that hangs an awake chip.
+    // After a serial/RTS reset (CHIP_PU stays high), the chip may still be in sleep from the
+    // previous run — crystal startup can take up to ~200ms in this case. Never send any command
+    // while BUSY is HIGH: the SX128x datasheet forbids it and will corrupt the state machine.
     {
       unsigned long t0 = millis();
       while (digitalRead(P_SX1281_BUSY) == HIGH) {
-        if (millis() - t0 > 50) {
-          Serial.println("SX1281 BUSY still HIGH after 50ms — sending NOP to wake");
-          spi->beginTransaction(SPISettings(1000000, MSBFIRST, SPI_MODE0));
-          pinMode(P_SX1281_NSS, OUTPUT);
-          digitalWrite(P_SX1281_NSS, LOW);
-          spi->transfer(0xC0);  // NOP command — wakes from sleep, valid in all modes
-          digitalWrite(P_SX1281_NSS, HIGH);
-          spi->endTransaction();
-          delay(5);
-          unsigned long t1 = millis();
-          while (digitalRead(P_SX1281_BUSY) == HIGH) {
-            if (millis() - t1 > 50) {
-              Serial.println("ERROR: SX1281 BUSY stuck HIGH — no power or hardware fault");
-              return false;
-            }
-          }
-          break;
+        if (millis() - t0 > 500) {
+          Serial.println("ERROR: SX1281 BUSY stuck HIGH after 500ms — hardware fault");
+          return false;
         }
       }
       Serial.println("SX1281 BUSY LOW — chip ready");
