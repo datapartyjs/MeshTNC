@@ -81,6 +81,11 @@ bool radio_init() {
     Serial.println(status_915);
   }
 
+  // Register both wrapper IRQ trampolines. the_mesh.begin() only calls _radio->begin()
+  // on the active wrapper, so the inactive wrapper would never register its setFlag handler.
+  radio_driver_2ghz.begin();
+  radio_driver_915.begin();
+
   // Prefer 2.4GHz, fall back to 915MHz
   if (ok_2ghz) {
     select_radio(&radio_driver_2ghz);

@@ -380,9 +380,7 @@ void setup() {
   board.begin();
 
   if (!radio_init()) { halt(); }
-  radio_driver_2ghz.begin();
-  radio_driver_915.begin();
-  the_mesh.setRadio(*active_radio);
+  the_mesh.setRadio(radio_driver);   // ultra: macro → *active_radio; others: no-op rebind
 
   fast_rng.begin(radio_get_rng_seed());
 
