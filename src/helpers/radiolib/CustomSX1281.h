@@ -19,7 +19,7 @@ public:
                 uint8_t cr = 7, int8_t power = 20, SPIClass* spi = NULL) {
 
     Serial.println("SX1281::stdinit spi->begin");
-    if (spi) spi->begin(P_SX1281_SCLK, P_SX1281_MISO, P_SX1281_MOSI);
+    if (spi) spi->begin(/*P_SX1281_SCLK, P_SX1281_MISO, P_SX1281_MOSI*/);
 
     // Wait for BUSY LOW before RadioLib begin(). At power-on, BUSY is HIGH ~3ms (OTP load).
     // After a serial/RTS reset (CHIP_PU stays high), the chip may still be in sleep from the
@@ -28,9 +28,10 @@ public:
     {
       unsigned long t0 = millis();
       while (digitalRead(P_SX1281_BUSY) == HIGH) {
-        if (millis() - t0 > 500) {
+        if (millis() - t0 > 1500) {
           Serial.println("ERROR: SX1281 BUSY stuck HIGH after 500ms — hardware fault");
-          return false;
+          //return false;
+          break;
         }
       }
       Serial.println("SX1281 BUSY LOW — chip ready");

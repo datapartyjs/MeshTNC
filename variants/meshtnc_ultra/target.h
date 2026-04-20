@@ -15,13 +15,15 @@ extern CustomSX1281 radio_sx1281;
 extern CustomSX1276 radio_sx1276;
 
 extern CustomSX1281Wrapper radio_driver_2ghz;
-extern CustomSX1276Wrapper radio_driver_915;
+//extern CustomSX1276Wrapper radio_driver_915;
 
 // Pointer to the currently active mesh radio — swap to switch bands
 extern RadioLibWrapper* active_radio;
 
 // Alias used by simple_repeater/main.cpp which expects radio_driver by name
-#define radio_driver (*active_radio)
+//#define radio_driver (radio_driver_915)
+
+extern WRAPPER_CLASS radio_driver;
 
 extern AutoDiscoverRTCClock rtc_clock;
 

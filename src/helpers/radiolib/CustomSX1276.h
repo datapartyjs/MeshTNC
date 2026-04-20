@@ -60,7 +60,7 @@ class CustomSX1276 : public SX1276 {
       setRfSwitchPins(SX176X_RXEN, SX176X_TXEN);
   #endif
 
-      setCRC(1);
+      setCRC(false);
 
       return true;  // success
     }
