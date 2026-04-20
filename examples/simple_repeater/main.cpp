@@ -380,6 +380,8 @@ void setup() {
   board.begin();
 
   if (!radio_init()) { halt(); }
+  radio_driver_2ghz.begin();
+  radio_driver_915.begin();
   the_mesh.setRadio(*active_radio);
 
   fast_rng.begin(radio_get_rng_seed());

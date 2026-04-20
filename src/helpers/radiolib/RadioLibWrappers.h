@@ -4,9 +4,17 @@
 #include <Preamble.h>
 
 class RadioLibWrapper : public mesh::Radio {
+  static RadioLibWrapper* _instances[2];
+  static int _next_id;
+  static void setFlag0();
+  static void setFlag1();
+
+  int8_t _instance_id;
+
 protected:
   PhysicalLayer* _radio;
   mesh::MainBoard* _board;
+  volatile uint8_t _state;
   uint32_t n_recv, n_sent;
   int16_t _noise_floor, _threshold;
   uint16_t _num_floor_samples;
@@ -18,7 +26,9 @@ protected:
   virtual bool isReceivingPacket() =0;
 
 public:
-  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board) { n_recv = n_sent = 0; }
+  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board)
+    : _instance_id(-1), _radio(&radio), _board(&board), _state(0)
+  { n_recv = n_sent = 0; }
 
   void begin() override;
   int recvRaw(uint8_t* bytes, int sz) override;
