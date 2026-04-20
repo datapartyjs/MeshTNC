@@ -1,9 +1,17 @@
 #pragma once
 
-#include <Arduino.h>
-#include <Dispatcher.h>
+#ifndef ARDUINO // windows/linux/bsd
+  #include <stdint.h>
+  #include <stdlib.h>
+  #include "MeshTNC.h"
+  #include <SerialPort.h>
+#else // defined(ARDUINO)
+  #include <Arduino.h>
+#endif
 
-enum CLIMode { CLI, KISS };
+#include "Dispatcher.h"
+
+extern MESHTNC_EXPORTS enum CLIMode { CLI, KISS };
 
 #define CMD_BUF_LEN_MAX 500
 
@@ -58,7 +66,7 @@ struct SignalReport {
   uint16_t pkt_len;
 };
 
-class KISSModem {
+extern class MESHTNC_EXPORTS KISSModem {
   uint16_t _len;
   bool _esc;
   uint32_t _txdelay;
