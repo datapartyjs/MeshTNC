@@ -158,6 +158,8 @@ protected:
   virtual int getAGCResetInterval() const { return 0; }    // disabled by default
 
 public:
+  void setRadio(Radio& r) { _radio = &r; }
+
   void begin();
   void loop();
 

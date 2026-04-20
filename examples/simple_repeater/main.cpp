@@ -380,6 +380,7 @@ void setup() {
   board.begin();
 
   if (!radio_init()) { halt(); }
+  the_mesh.setRadio(*active_radio);
 
   fast_rng.begin(radio_get_rng_seed());
 
