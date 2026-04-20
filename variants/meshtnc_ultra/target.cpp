@@ -14,8 +14,15 @@ static SPIClass spi_sx1276(HSPI);
 CustomSX1276 radio_sx1276(new Module(P_SX1276_NSS, P_SX1276_DIO0, RADIOLIB_NC, P_SX1276_DIO1, spi_sx1276));
 CustomSX1276Wrapper radio_driver_915(radio_sx1276, board);
 
-// Default active radio: 2.4GHz
-RadioLibWrapper* active_radio = &radio_driver_2ghz;
+// Default active radio: 915MHz.
+// IMPORTANT: the_mesh (simple_repeater/main.cpp) is a global C++ object constructed before
+// setup() runs, so mesh::Mesh captures a reference to (*active_radio) at construction time.
+// That binding is permanent — changing active_radio after construction has no effect on
+// which radio the mesh framework uses. Defaulting to 915MHz here ensures the mesh is
+// always bound to the SX1276 wrapper, which is correct when SX1281 fails. When SX1281
+// is working, the mesh will still use SX1276; a proper fix (pointer-based Radio in Mesh)
+// is needed before true dual-radio switching is possible.
+RadioLibWrapper* active_radio = &radio_driver_915;
 
 ESP32RTCClock fallback_clock;
 AutoDiscoverRTCClock rtc_clock(fallback_clock);
