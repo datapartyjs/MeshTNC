@@ -82,7 +82,7 @@ bool radio_init() {
 
 uint32_t radio_get_rng_seed() {
   if (active_radio == &radio_driver_2ghz){
-    return radio_sx1281.random(0x7FFFFFFF)
+    return radio_sx1281.random(0x7FFFFFFF);
   }
   return radio_sx1276.random(0x7FFFFFFF);
 }
