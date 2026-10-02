@@ -244,7 +244,7 @@ void CommonCLI::handleCLICommand(
     uint8_t sync_word  = num > 4 ? strtol(parts[4], nullptr, 16) : 0;
     int temp_timeout_mins  = num > 5 ? atoi(parts[5]) : 0;
     if (freq >= 300.0f && freq <= 2500.0f &&
-        sf >= 7 && sf <= 12 &&
+        sf >= 5 && sf <= 12 &&
         cr >= 5 && cr <= 8 &&
         bw >= 7.0f && bw <= 1625.0f &&
         temp_timeout_mins > 0)
