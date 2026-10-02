@@ -65,7 +65,8 @@ void Dispatcher::loop() {
       //Serial.print("  airtime="); Serial.println(t);
 
       // will need radio silence up to next_tx_time
-      next_tx_time = futureMillis(t * /*getAirtimeBudgetFactor()*/);
+      //next_tx_time = futureMillis(t * getAirtimeBudgetFactor());
+      next_tx_time = futureMillis(0);
 
       _radio->onSendFinished();
       logTx(outbound, 2 + outbound->payload_len);
