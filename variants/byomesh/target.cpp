@@ -59,6 +59,7 @@ bool radio_init() {
   if (!ok_2ghz) {
     Serial.println("WARN: SX1281 2.4GHz init failed, falling back to SX1276 915MHz");
   } else {
+    radio_sx1281.setCRC(0);
     Serial.println("SX1281 ready");
   }
 
@@ -68,7 +69,7 @@ bool radio_init() {
   bool ok_915 = radio_sx1276.std_init(&spi_sx1276);
   if (ok_915) {
     //radio_sx1276.setCurrentLimit(120);
-    //radio_sx1276.setCRC(0);
+    radio_sx1276.setCRC(0);
     Serial.println("SX1276 ready");
   } else {
     Serial.print("WARN: SX1276 915MHz init failed: ");
