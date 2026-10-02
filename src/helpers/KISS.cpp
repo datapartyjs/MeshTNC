@@ -63,13 +63,10 @@ void KISSModem::parseSerialKISS() {
         }
         continue;
       case KISSFrame::FEND:
-        // if current command length is greater than 0 and we encounter a FEND,
-        // handle the whole command buffer as a KISS command, send length, and
-        // then reset length to zero to wait for the next KISS command
+        // a FEND always ends the current frame (and any pending escape);
+        // a non-empty frame is handled as a KISS command
+        _esc = false;
         if (_len > 0) {
-          // encountered literal FEND while in escape mode. reset escape mode
-          if (_esc) _esc = false;
-          // handle the command and reset kiss cmdbuf length to 0
           handleKISSCommand(0, command, _len);
           _len = 0;
         }
@@ -93,18 +90,18 @@ void KISSModem::parseSerialKISS() {
       default:
         // add byte to command buffer and increment _len,
         // if it is not handled above.
-        // eat and discard any unknown escaped bytes
-        if (!_esc) _cmd[_len++] = b;
+        // eat and discard any unknown escaped byte, and leave escape mode
+        if (_esc) _esc = false;
+        else _cmd[_len++] = b;
         break;
     }
   }
 
-  // check if command buffer is full after reading and processing last byte
-  if (_len == sizeof(_cmd)-1) {
-    // just send the truncated transmission for now
-    // TODO: handle error condition?
-    handleKISSCommand(0, command, _len);
+  // command buffer full without a closing FEND: the frame is far larger than
+  // anything the radio can send - drop it instead of transmitting a truncated one
+  if (_len >= sizeof(_cmd)-1) {
     _len = 0;
+    _esc = false;
   }
 }
 
@@ -130,6 +127,8 @@ void KISSModem::handleKISSCommand(
     switch (kiss_cmd) {
       case KISSCmd::Return:
         _cmd[0] = 0; // reset command buffer
+        _len = 0;
+        _esc = false;
         *_cli_mode = CLIMode::CLI; // return to CLI mode
         Serial.println("  -> Exiting KISS mode and returning to CLI mode.");
         return;
@@ -140,16 +139,24 @@ void KISSModem::handleKISSCommand(
   if (kiss_port == _port) {
     switch (kiss_cmd) {
       case KISSCmd::TxDelay:
-        // TX delay is specified in 10ms units
-        if (kiss_data_len > 0) _txdelay = atoi(&kiss_data[0]) * 10;
+        // TX delay is ONE BINARY BYTE in 10ms units (not ASCII text)
+        if (kiss_data_len > 0) _txdelay = static_cast<uint8_t>(kiss_data[0]) * 10;
         break;
-      case KISSCmd::Data:
-        if (kiss_data_len == 0) break;
+      case KISSCmd::Data: {
+        // nothing to send, or more than one LoRa frame can carry: drop
+        if (kiss_data_len == 0 || kiss_data_len > MAX_TRANS_UNIT) break;
         const uint8_t* tx_buf = reinterpret_cast<const uint8_t*>(kiss_data);
+        // NULL when all packets are queued (host sending faster than the radio
+        // can transmit): drop this frame instead of writing through NULL
         mesh::Packet* pkt = _mesh->obtainNewPacket();
-        pkt->readFrom(tx_buf, kiss_data_len);
+        if (pkt == NULL) break;
+        if (!pkt->readFrom(tx_buf, static_cast<uint8_t>(kiss_data_len))) {
+          _mesh->releasePacket(pkt);   // back to the pool, don't leak it
+          break;
+        }
         _mesh->sendPacket(pkt, 1, _txdelay);
         break;
+      }
     }
   }
 }
