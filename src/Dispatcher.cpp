@@ -33,10 +33,10 @@ int Dispatcher::calcRxDelay(float score, uint32_t air_time) const {
 }
 
 uint32_t Dispatcher::getCADFailRetryDelay() const {
-  return 200;
+  return 5;
 }
 uint32_t Dispatcher::getCADFailMaxDuration() const {
-  return 4000;   // 4 seconds
+  return 100;   // 60 milli seconds
 }
 
 void Dispatcher::loop() {
