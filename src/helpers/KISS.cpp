@@ -154,7 +154,7 @@ void KISSModem::handleKISSCommand(
           _mesh->releasePacket(pkt);   // back to the pool, don't leak it
           break;
         }
-        _mesh->sendPacket(pkt, 1, _txdelay);
+        _mesh->sendPacket(pkt, 1/*, _txdelay*/);
         break;
       }
     }
