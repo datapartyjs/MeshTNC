@@ -8,7 +8,7 @@
 
 namespace mesh {
 
-#define MAX_RX_DELAY_MILLIS   32000  // 32 seconds
+#define MAX_RX_DELAY_MILLIS   20  // 20milli seconds
 
 #ifndef NOISE_FLOOR_CALIB_INTERVAL
   #define NOISE_FLOOR_CALIB_INTERVAL   2000     // 2 seconds
@@ -33,10 +33,10 @@ int Dispatcher::calcRxDelay(float score, uint32_t air_time) const {
 }
 
 uint32_t Dispatcher::getCADFailRetryDelay() const {
-  return 5;
+  return 3;
 }
 uint32_t Dispatcher::getCADFailMaxDuration() const {
-  return 100;   // 60 milli seconds
+  return 15;   // 60 milli seconds
 }
 
 void Dispatcher::loop() {
@@ -65,7 +65,7 @@ void Dispatcher::loop() {
       //Serial.print("  airtime="); Serial.println(t);
 
       // will need radio silence up to next_tx_time
-      next_tx_time = futureMillis(t * getAirtimeBudgetFactor());
+      next_tx_time = futureMillis(t * /*getAirtimeBudgetFactor()*/);
 
       _radio->onSendFinished();
       logTx(outbound, 2 + outbound->payload_len);
@@ -168,7 +168,7 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
 
 void Dispatcher::checkSend() {
   if (_mgr->getOutboundCount(_ms->getMillis()) == 0) return;  // nothing waiting to send
-  if (!millisHasNowPassed(next_tx_time)) return;   // still in 'radio silence' phase (from airtime budget setting)
+  //if (!millisHasNowPassed(next_tx_time)) return;   // still in 'radio silence' phase (from airtime budget setting)
   if (_radio->isReceiving()) {   // LBT - check if radio is currently mid-receive, or if channel activity
     if (cad_busy_start == 0) {
       cad_busy_start = _ms->getMillis();   // record when CAD busy state started
