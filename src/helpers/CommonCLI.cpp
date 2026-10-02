@@ -184,8 +184,8 @@ void CommonCLI::handleCLICommand(
     mesh::Packet* pkt = _mesh->obtainNewPacket();
     uint8_t tx_buf[MAX_PACKET_PAYLOAD];
     uint8_t len_buf = 0;
-    char tmp[3];
-    for (int i = 0; i < strlen(tx_hex); i+= 2) {
+    char tmp[3] = {0, 0, 0};
+    for (size_t i = 0; i + 1 < strlen(tx_hex) && len_buf < sizeof(tx_buf); i += 2) {
       if (tx_hex[i] == '\n' || tx_hex[i] == ' ') {
         break;
       }
@@ -284,8 +284,8 @@ void CommonCLI::handleCLICommand(
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->rx_delay_base));
     } else if (memcmp(config, "txdelay", 7) == 0) {
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->tx_delay_factor));
-    } else if (memcmp(config, "txpower", 2) == 0 &&
-               (config[2] == 0 || config[2] == ' '))
+    } else if (memcmp(config, "txpower", 7) == 0 &&
+              (config[7] == 0 || config[7] == ' '))
     {
       sprintf(resp, "> %d", (uint32_t) _prefs->tx_power_dbm);
     } else if (memcmp(config, "freq", 4) == 0) {
@@ -322,7 +322,7 @@ void CommonCLI::handleCLICommand(
       savePrefs();
       strcpy(resp, "OK");
     } else if (memcmp(config, "ble ", 4) == 0) {
-      strcpy(_tmp, &config[6]);
+      strcpy(_tmp, &config[4]);
       const char *parts[4];
       int num = mesh::Utils::parseTextParts(_tmp, parts, 4);
 
@@ -391,8 +391,8 @@ void CommonCLI::handleCLICommand(
       } else {
         strcpy(resp, "Error, cannot be negative");
       }
-    } else if (memcmp(config, "txpower ", 3) == 0) {
-      _prefs->tx_power_dbm = atoi(&config[3]);
+    } else if (memcmp(config, "txpower ", 8) == 0) {
+      _prefs->tx_power_dbm = constrain(atoi(&config[8]), 1, 30);
       savePrefs();
       _callbacks->setTxPower(_prefs->tx_power_dbm);
       strcpy(resp, "OK");
