@@ -378,6 +378,7 @@ void setup() {
   board.begin();
 
   if (!radio_init()) { halt(); }
+  the_mesh.setRadio(&radio_driver);
 
   fast_rng.begin(radio_get_rng_seed());
 

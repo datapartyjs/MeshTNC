@@ -53,10 +53,11 @@ class KISSModem {
         _len = 0;
         _esc = false;
         _txdelay = 0;
+        _port = KISSPort::LoRa_Port;
     }
     KISSPort getPort() { return _port; };
     void setPort(KISSPort port) { _port = port; };
-    void reset() {_len = 0; };
+    void reset() { _len = 0; _esc = false; };
     void parseSerialKISS();
     void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, uint16_t len);
     uint16_t encodeKISSFrame(

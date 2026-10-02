@@ -63,7 +63,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     _prefs->tx_delay_factor = constrain(_prefs->tx_delay_factor, 0, 2.0f);
     _prefs->airtime_factor = constrain(_prefs->airtime_factor, 0, 9.0f);
     _prefs->freq = constrain(_prefs->freq, 400.0f, 2500.0f);
-    _prefs->bw = constrain(_prefs->bw, 62.5f, 500.0f);
+    _prefs->bw = constrain(_prefs->bw, 62.5f, 1625.0f);
     _prefs->sf = constrain(_prefs->sf, 5, 12);
     _prefs->cr = constrain(_prefs->cr, 5, 8);
     _prefs->tx_power_dbm = constrain(_prefs->tx_power_dbm, 1, 30);
@@ -184,8 +184,8 @@ void CommonCLI::handleCLICommand(
     mesh::Packet* pkt = _mesh->obtainNewPacket();
     uint8_t tx_buf[MAX_PACKET_PAYLOAD];
     uint8_t len_buf = 0;
-    char tmp[3];
-    for (int i = 0; i < strlen(tx_hex); i+= 2) {
+    char tmp[3] = {0, 0, 0};
+    for (size_t i = 0; i + 1 < strlen(tx_hex) && len_buf < sizeof(tx_buf); i += 2) {
       if (tx_hex[i] == '\n' || tx_hex[i] == ' ') {
         break;
       }
@@ -244,9 +244,9 @@ void CommonCLI::handleCLICommand(
     uint8_t sync_word  = num > 4 ? strtol(parts[4], nullptr, 16) : 0;
     int temp_timeout_mins  = num > 5 ? atoi(parts[5]) : 0;
     if (freq >= 300.0f && freq <= 2500.0f &&
-        sf >= 7 && sf <= 12 &&
+        sf >= 5 && sf <= 12 &&
         cr >= 5 && cr <= 8 &&
-        bw >= 7.0f && bw <= 500.0f &&
+        bw >= 7.0f && bw <= 1625.0f &&
         temp_timeout_mins > 0)
     {
       _callbacks->applyTempRadioParams(freq, bw, sf, cr,
@@ -284,8 +284,8 @@ void CommonCLI::handleCLICommand(
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->rx_delay_base));
     } else if (memcmp(config, "txdelay", 7) == 0) {
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->tx_delay_factor));
-    } else if (memcmp(config, "txpower", 2) == 0 &&
-               (config[2] == 0 || config[2] == ' '))
+    } else if (memcmp(config, "txpower", 7) == 0 &&
+              (config[7] == 0 || config[7] == ' '))
     {
       sprintf(resp, "> %d", (uint32_t) _prefs->tx_power_dbm);
     } else if (memcmp(config, "freq", 4) == 0) {
@@ -322,7 +322,7 @@ void CommonCLI::handleCLICommand(
       savePrefs();
       strcpy(resp, "OK");
     } else if (memcmp(config, "ble ", 4) == 0) {
-      strcpy(_tmp, &config[6]);
+      strcpy(_tmp, &config[4]);
       const char *parts[4];
       int num = mesh::Utils::parseTextParts(_tmp, parts, 4);
 
@@ -352,7 +352,7 @@ void CommonCLI::handleCLICommand(
       if (freq >= 300.0f && freq <= 2500.0f &&
           sf >= 5 && sf <= 12 &&
           cr >= 5 && cr <= 8 &&
-          bw >= 7.0f && bw <= 500.0f
+          bw >= 7.0f && bw <= 1625.0f
       ){
         _prefs->sf = sf;
         _prefs->cr = cr;
@@ -391,8 +391,8 @@ void CommonCLI::handleCLICommand(
       } else {
         strcpy(resp, "Error, cannot be negative");
       }
-    } else if (memcmp(config, "txpower ", 3) == 0) {
-      _prefs->tx_power_dbm = atoi(&config[3]);
+    } else if (memcmp(config, "txpower ", 8) == 0) {
+      _prefs->tx_power_dbm = constrain(atoi(&config[8]), 1, 30);
       savePrefs();
       _callbacks->setTxPower(_prefs->tx_power_dbm);
       strcpy(resp, "OK");
