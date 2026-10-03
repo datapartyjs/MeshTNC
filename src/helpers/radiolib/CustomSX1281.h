@@ -8,6 +8,12 @@
 #define SX128X_IRQ_HEADER_VALID       RADIOLIB_SX128X_IRQ_HEADER_VALID
 #define SX128X_IRQ_PREAMBLE_DETECTED  RADIOLIB_SX128X_IRQ_PREAMBLE_DETECTED
 
+// Max time to wait for BUSY to drop after waking from sleep. With config retention the
+// SX128x is normally ready in ~1-2 ms; the generous default covers slow crystal start-up.
+#ifndef SX1281_WAKE_TIMEOUT_MS
+  #define SX1281_WAKE_TIMEOUT_MS  100
+#endif
+
 // SX128x GetStatus: bits [7:5] = circuit mode, 0x6 = TX (datasheet table 11-5)
 #define SX128X_STATUS_CIRCUIT_MODE(s) (((s) >> 5) & 0x07)
 #define SX128X_CIRCUIT_MODE_TX        0x06
@@ -98,6 +104,42 @@ public:
   bool isReceiving() {
     uint32_t irq = getIrqFlags();
     return (irq & SX128X_IRQ_HEADER_VALID) || (irq & SX128X_IRQ_PREAMBLE_DETECTED);
+  }
+
+  // Sleep with configuration retained, so wake() needs no re-init.
+  bool sleepRetain() {
+    return SX128x::sleep(true) == RADIOLIB_ERR_NONE;
+  }
+
+  // Wake from sleep and return to STDBY_RC. false if the chip never became ready.
+  bool wake(uint32_t timeout_ms = SX1281_WAKE_TIMEOUT_MS) {
+  #ifdef P_SX1281_RESET
+    // NRESET is wired: use RadioLib's own wake-up (NSS pulse inside standby())
+    (void)timeout_ms;
+    return SX128x::standby(RADIOLIB_SX128X_STANDBY_RC, true) == RADIOLIB_ERR_NONE;
+  #else
+    // no NRESET line: wake with our own NSS routine, then enter standby normally
+    if (!nssWake(timeout_ms)) return false;
+    return SX128x::standby() == RADIOLIB_ERR_NONE;
+  #endif
+  }
+
+  // SX128x wakes from sleep on an NSS falling edge and holds BUSY high until it is ready.
+  // Commands must never be sent while BUSY is high, so this pulses NSS by hand and waits
+  // for BUSY instead of letting RadioLib's SPI layer issue a command into a sleeping chip.
+  static bool nssWake(uint32_t timeout_ms = SX1281_WAKE_TIMEOUT_MS) {
+    if (digitalRead(P_SX1281_BUSY) == LOW) return true;   // not asleep, nothing to do
+
+    digitalWrite(P_SX1281_NSS, LOW);
+    delayMicroseconds(100);
+    digitalWrite(P_SX1281_NSS, HIGH);
+
+    unsigned long t0 = millis();
+    while (digitalRead(P_SX1281_BUSY) == HIGH) {
+      if (millis() - t0 > timeout_ms) return false;   // chip missing, unpowered or stuck
+      delayMicroseconds(50);
+    }
+    return true;
   }
 
   bool isTxDone() {

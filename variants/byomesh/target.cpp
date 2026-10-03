@@ -4,9 +4,16 @@
 ESP32Board board;
 
 // --- SX1281 2.4GHz (SPI2 / FSPI) ---
-// Both radio NRESETs are tied to CHIP_PU (hardware reset line), not a GPIO — RADIOLIB_NC correct.
+// On this board both radio NRESETs are tied to CHIP_PU, not a GPIO, so there's no reset pin.
+// A board revision that wires the SX1281 NRESET to a GPIO can define P_SX1281_RESET; the
+// SX1281 then wakes from sleep through RadioLib instead of CustomSX1281::nssWake().
+#ifdef P_SX1281_RESET
+  #define SX1281_RESET_PIN  P_SX1281_RESET
+#else
+  #define SX1281_RESET_PIN  RADIOLIB_NC
+#endif
 static SPIClass spi_sx1281(FSPI);
-CustomSX1281 radio_sx1281(new Module(P_SX1281_NSS, P_SX1281_DIO1, RADIOLIB_NC, P_SX1281_BUSY /*RADIOLIB_NC*/, spi_sx1281));
+CustomSX1281 radio_sx1281(new Module(P_SX1281_NSS, P_SX1281_DIO1, SX1281_RESET_PIN, P_SX1281_BUSY, spi_sx1281));
 CustomSX1281Wrapper radio_driver_2ghz(radio_sx1281, board);
 
 // --- SX1276 915MHz (SPI3 / HSPI) ---
@@ -24,9 +31,19 @@ AutoDiscoverRTCClock rtc_clock(fallback_clock);
 // Set active radio and route J2 coax via U8 RFASWA630ATF09:
 //   LOW  → RF2 → AT2401C → SX1281 (2.4GHz)
 //   HIGH → RF1 → U6      → SX1276 (915MHz)
-static void select_radio(RadioLibWrapper* r) {
+// The radio being switched to is woken first (it's asleep while unused); if it doesn't
+// wake, the current radio stays active. The radio being left is put to sleep by
+// MyMesh::bindActiveRadio(), once any transmit in progress on it has finished.
+static bool select_radio(RadioLibWrapper* r) {
+  if (r != active_radio && !r->wakeRadio()) {
+    MESH_DEBUG_PRINTLN("select_radio: %s did not wake, staying on %s",
+      r == &radio_driver_2ghz ? "SX1281" : "SX1276",
+      active_radio == &radio_driver_2ghz ? "SX1281" : "SX1276");
+    return false;
+  }
   active_radio = r;
   digitalWrite(P_SX1281_RF_SW, (r == &radio_driver_2ghz) ? LOW : HIGH);
+  return true;
 }
 
 bool radio_init() {
@@ -78,6 +95,10 @@ bool radio_init() {
 
   select_radio(&radio_driver);
 
+  // the SX1281 isn't the active radio yet: sleep it until radio_set_params() selects it
+  // (a 2.4 GHz config wakes it again right away, which also exercises the wake path)
+  if (ok_2ghz) radio_driver_2ghz.sleepRadio();
+
   return true;
 }
 
@@ -89,7 +110,8 @@ uint32_t radio_get_rng_seed() {
 }
 
 void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
-  select_radio(freq > 2000.f ? (RadioLibWrapper*) &radio_driver_2ghz : (RadioLibWrapper*) &radio_driver);
+  RadioLibWrapper* want = freq > 2000.f ? (RadioLibWrapper*) &radio_driver_2ghz : (RadioLibWrapper*) &radio_driver;
+  if (!select_radio(want)) return;   // couldn't wake it: these params don't fit the current radio
 
   if (active_radio == &radio_driver_2ghz) {
     radio_sx1281.setFrequency(freq);

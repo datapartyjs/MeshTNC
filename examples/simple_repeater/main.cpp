@@ -170,7 +170,7 @@ public:
 #ifdef BYOMESH
     if (getRadio() == active_radio) return;
     if (isSending()) return;   // never swap mid-TX; loop() retries
-    ((RadioLibWrapper*)getRadio())->standby();
+    ((RadioLibWrapper*)getRadio())->sleepRadio();   // unused radio: low-power sleep
     setRadio(active_radio);
     active_radio->begin();     // attaches this radio's DIO1 IRQ handler, resets its state
     MESH_DEBUG_PRINTLN("Dispatcher bound to %s radio", active_radio == &radio_driver_2ghz ? "SX1281" : "SX1276");

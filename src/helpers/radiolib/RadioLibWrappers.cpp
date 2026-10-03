@@ -50,6 +50,26 @@ void RadioLibWrapper::idle() {
   _state = STATE_IDLE;   // need another startReceive()
 }
 
+bool RadioLibWrapper::sleepRadio() {
+  int err = _radio->sleep();
+  _state = STATE_IDLE;   // needs a startReceive() once woken and rebound
+  if (err != RADIOLIB_ERR_NONE) {
+    MESH_DEBUG_PRINTLN("RadioLibWrapper: error: sleep(%d)", err);
+    return false;
+  }
+  return true;
+}
+
+bool RadioLibWrapper::wakeRadio() {
+  int err = _radio->standby();   // e.g. SX127x: writing standby to RegOpMode wakes it
+  _state = STATE_IDLE;
+  if (err != RADIOLIB_ERR_NONE) {
+    MESH_DEBUG_PRINTLN("RadioLibWrapper: error: wake/standby(%d)", err);
+    return false;
+  }
+  return true;
+}
+
 void RadioLibWrapper::triggerNoiseFloorCalibrate(int threshold) {
   _threshold = threshold;
   if (_num_floor_samples >= NUM_NOISE_FLOOR_SAMPLES) {  // ignore trigger if currently sampling

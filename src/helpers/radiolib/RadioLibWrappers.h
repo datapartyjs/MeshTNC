@@ -38,6 +38,11 @@ public:
 
   void begin() override;
   void standby() { idle(); }   // stop RX/TX on this radio (used when switching radios)
+
+  // low-power sleep for a radio that isn't in use (configuration is retained where the chip
+  // supports it). wakeRadio() must succeed before any other call on a sleeping radio.
+  virtual bool sleepRadio();
+  virtual bool wakeRadio();
   int recvRaw(uint8_t* bytes, int sz) override;
   uint32_t getEstAirtimeFor(int len_bytes) override;
   bool startSendRaw(const uint8_t* bytes, int len) override;
