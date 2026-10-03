@@ -10,6 +10,19 @@ namespace mesh {
 
 #define MAX_RX_DELAY_MILLIS   20  // 20milli seconds
 
+// When the TX-done interrupt hasn't arrived by (1.5 x estimated airtime + margin),
+// the chip is asked directly; if it's still transmitting, it's re-checked every
+// TX_RECHECK_MILLIS until the hard limit, after which it is forced to standby.
+#ifndef TX_TIMEOUT_MARGIN_MILLIS
+  #define TX_TIMEOUT_MARGIN_MILLIS   20
+#endif
+#ifndef TX_RECHECK_MILLIS
+  #define TX_RECHECK_MILLIS          5
+#endif
+#ifndef TX_HARD_TIMEOUT_MARGIN_MILLIS
+  #define TX_HARD_TIMEOUT_MARGIN_MILLIS   500
+#endif
+
 #ifndef NOISE_FLOOR_CALIB_INTERVAL
   #define NOISE_FLOOR_CALIB_INTERVAL   2000     // 2 seconds
 #endif
@@ -59,7 +72,28 @@ void Dispatcher::loop() {
   }
 
   if (outbound) {  // waiting for outbound send to be completed
-    if (_radio->isSendComplete()) {
+    int tx_status = _radio->pollSendStatus();   // driven by the radio's TX-done interrupt
+
+    if (tx_status == RADIO_TX_PENDING && millisHasNowPassed(outbound_expiry)) {
+      // interrupt is late: ask the chip what it's actually doing
+      tx_status = _radio->verifySendStatus();
+      if (tx_status == RADIO_TX_DONE) {
+        MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): TX finished but TX-done IRQ was missed", getLogDateTime());
+      } else if (tx_status == RADIO_TX_PENDING) {      // still on the air: keep waiting
+        if (millisHasNowPassed(outbound_hard_expiry)) {
+          _err_flags |= ERR_EVENT_TX_STUCK;
+          MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): WARNING: radio stuck in TX, forcing standby", getLogDateTime());
+          tx_status = RADIO_TX_FAILED;
+        } else {
+          outbound_expiry = futureMillis(TX_RECHECK_MILLIS);
+        }
+      } else if (tx_status == RADIO_TX_UNKNOWN) {      // radio can't report its state: old behaviour
+        MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): WARNING: outbound packed send timed out!", getLogDateTime());
+        tx_status = RADIO_TX_FAILED;
+      }
+    }
+
+    if (tx_status == RADIO_TX_DONE) {
       long t = _ms->getMillis() - outbound_start;
       total_air_time += t;  // keep track of how much air time we are using
       //Serial.print("  airtime="); Serial.println(t);
@@ -74,8 +108,9 @@ void Dispatcher::loop() {
 
       releasePacket(outbound);  // return to pool
       outbound = NULL;
-    } else if (millisHasNowPassed(outbound_expiry)) {
-      MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): WARNING: outbound packed send timed out!", getLogDateTime());
+    } else if (tx_status == RADIO_TX_FAILED) {
+      _err_flags |= ERR_EVENT_TX_FAIL;
+      MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): WARNING: outbound packet send failed", getLogDateTime());
 
       _radio->onSendFinished();
       logTxFail(outbound, 2 + outbound->payload_len);
@@ -200,7 +235,10 @@ void Dispatcher::checkSend() {
     } else {
       memcpy(&raw[len], outbound->payload, outbound->payload_len); len += outbound->payload_len;
 
-      uint32_t max_airtime = _radio->getEstAirtimeFor(len)*3/2;
+      // 1.5x estimated airtime plus a fixed margin: at fast settings (e.g. SX1281
+      // SF5/1625kHz) the estimate is only a few ms, and a late TX-done IRQ would
+      // otherwise abort the packet mid-air via onSendFinished()
+      uint32_t max_airtime = _radio->getEstAirtimeFor(len)*3/2 + TX_TIMEOUT_MARGIN_MILLIS;
       outbound_start = _ms->getMillis();
       bool success = _radio->startSendRaw(raw, len);
       if (!success) {
@@ -213,6 +251,8 @@ void Dispatcher::checkSend() {
         return;
       }
       outbound_expiry = futureMillis(max_airtime);
+      // only reached if the chip keeps reporting TX well past any plausible airtime
+      outbound_hard_expiry = futureMillis(_radio->getEstAirtimeFor(len)*2 + TX_HARD_TIMEOUT_MARGIN_MILLIS);
 
     #if MESH_PACKET_LOGGING
       Serial.print(getLogDateTime());

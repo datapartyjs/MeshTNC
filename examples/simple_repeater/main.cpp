@@ -164,12 +164,26 @@ public:
     _prefs.ble_scantime = 10 * 1000;
   }
 
+  // radio_set_params() may switch radios (BYOMesh: SX1281 for >2000 MHz, SX1276 otherwise).
+  // Point the Dispatcher at whichever one is active, or it keeps using the old radio.
+  void bindActiveRadio() {
+#ifdef BYOMESH
+    if (getRadio() == active_radio) return;
+    if (isSending()) return;   // never swap mid-TX; loop() retries
+    ((RadioLibWrapper*)getRadio())->standby();
+    setRadio(active_radio);
+    active_radio->begin();     // attaches this radio's DIO1 IRQ handler, resets its state
+    MESH_DEBUG_PRINTLN("Dispatcher bound to %s radio", active_radio == &radio_driver_2ghz ? "SX1281" : "SX1276");
+#endif
+  }
+
   void begin(FILESYSTEM* fs) {
     mesh::Mesh::begin();
     _fs = fs;
     _cli.loadPrefs(_fs);
 
     radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
+    bindActiveRadio();
     radio_set_tx_power(_prefs.tx_power_dbm);
 
 #ifdef ENABLE_BLE
@@ -229,6 +243,7 @@ public:
 
   void applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) {
     radio_set_params(freq, bw, sf, cr, sync_word);
+    bindActiveRadio();
   }
 
 
@@ -297,6 +312,9 @@ public:
         }
 
         blePacketRxCount++;
+        // a full scan dump is hundreds of ms of blocking serial writes:
+        // keep servicing the LoRa radio between results
+        mesh::Dispatcher::loop();
       }
 
       bleReported = false;
@@ -343,16 +361,19 @@ public:
 
   void loop() {
     mesh::Dispatcher::loop();
+    bindActiveRadio();   // completes a radio switch deferred by an in-flight TX
 
     if (set_radio_at && millisHasNowPassed(set_radio_at)) {   // apply pending (temporary) radio params
       set_radio_at = 0;  // clear timer
       radio_set_params(pending_freq, pending_bw, pending_sf, pending_cr, pending_sync_word);
+      bindActiveRadio();
       MESH_DEBUG_PRINTLN("Temp radio params");
     }
 
     if (revert_radio_at && millisHasNowPassed(revert_radio_at)) {   // revert radio params to orig
       revert_radio_at = 0;  // clear timer
       radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
+      bindActiveRadio();
       MESH_DEBUG_PRINTLN("Radio params restored");
     }
 
@@ -378,7 +399,11 @@ void setup() {
   board.begin();
 
   if (!radio_init()) { halt(); }
+#ifdef BYOMESH
+  the_mesh.setRadio(active_radio);
+#else
   the_mesh.setRadio(&radio_driver);
+#endif
 
   fast_rng.begin(radio_get_rng_seed());
 

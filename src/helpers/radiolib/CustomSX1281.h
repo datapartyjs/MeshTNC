@@ -2,9 +2,15 @@
 
 #include <RadioLib.h>
 
-// SX128x LoRa IRQ flag bits (SX128x datasheet Table 11-76)
-#define SX128X_IRQ_HEADER_VALID       0x0010  // LoRa header received and valid
-#define SX128X_IRQ_PREAMBLE_DETECTED  0x4000  // LoRa preamble detected
+// SX128x LoRa IRQ flag bits, from RadioLib. (The old hand-written PREAMBLE_DETECTED
+// value 0x4000 is actually RX_TX_TIMEOUT, so a TX/RX timeout read as "channel busy".)
+#define SX128X_IRQ_TX_DONE            RADIOLIB_SX128X_IRQ_TX_DONE
+#define SX128X_IRQ_HEADER_VALID       RADIOLIB_SX128X_IRQ_HEADER_VALID
+#define SX128X_IRQ_PREAMBLE_DETECTED  RADIOLIB_SX128X_IRQ_PREAMBLE_DETECTED
+
+// SX128x GetStatus: bits [7:5] = circuit mode, 0x6 = TX (datasheet table 11-5)
+#define SX128X_STATUS_CIRCUIT_MODE(s) (((s) >> 5) & 0x07)
+#define SX128X_CIRCUIT_MODE_TX        0x06
 
 // SX1280 and SX1281 share the same die. Physical parts report "SX1280 V3B" in the
 // version string regardless of package markings. SX1281 class requires "SX1281" match
@@ -92,6 +98,14 @@ public:
   bool isReceiving() {
     uint32_t irq = getIrqFlags();
     return (irq & SX128X_IRQ_HEADER_VALID) || (irq & SX128X_IRQ_PREAMBLE_DETECTED);
+  }
+
+  bool isTxDone() {
+    return (getIrqFlags() & SX128X_IRQ_TX_DONE) != 0;
+  }
+
+  bool isTransmitting() {
+    return SX128X_STATUS_CIRCUIT_MODE(SX128x::getStatus()) == SX128X_CIRCUIT_MODE_TX;
   }
 
 };

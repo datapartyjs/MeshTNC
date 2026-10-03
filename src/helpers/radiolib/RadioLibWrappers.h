@@ -10,6 +10,7 @@ class RadioLibWrapper : public mesh::Radio {
   static void setFlag1();
 
   int8_t _instance_id;
+  bool _tx_poll_irq;   // TX: interrupt fired for something other than TX-done, poll the chip
 
 protected:
   PhysicalLayer* _radio;
@@ -25,16 +26,24 @@ protected:
   float packetScoreInt(float snr, int sf, int packet_len);
   virtual bool isReceivingPacket() =0;
 
+  // chip-specific TX state, read over SPI. 1 = yes, 0 = no, -1 = this chip can't tell
+  // (with -1 the wrapper keeps the old behaviour: any interrupt during TX means done)
+  virtual int readTxDoneFlag() { return -1; }
+  virtual int readInTxMode() { return -1; }
+
 public:
   RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board)
-    : _instance_id(-1), _radio(&radio), _board(&board), _state(0)
+    : _instance_id(-1), _tx_poll_irq(false), _radio(&radio), _board(&board), _state(0)
   { n_recv = n_sent = 0; }
 
   void begin() override;
+  void standby() { idle(); }   // stop RX/TX on this radio (used when switching radios)
   int recvRaw(uint8_t* bytes, int sz) override;
   uint32_t getEstAirtimeFor(int len_bytes) override;
   bool startSendRaw(const uint8_t* bytes, int len) override;
   bool isSendComplete() override;
+  int pollSendStatus() override;
+  int verifySendStatus() override;
   void onSendFinished() override;
   bool isInRecvMode() const override;
   bool isChannelActive();

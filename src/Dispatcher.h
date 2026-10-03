@@ -18,6 +18,11 @@ public:
 /**
  * \brief  Abstraction of this device's packet radio.
 */
+#define RADIO_TX_PENDING   0
+#define RADIO_TX_DONE      1
+#define RADIO_TX_FAILED    2
+#define RADIO_TX_UNKNOWN  (-1)
+
 class Radio {
 public:
   virtual void begin() { }
@@ -49,6 +54,20 @@ public:
    * \returns true if the previous 'startSendRaw()' completed successfully.
   */
   virtual bool isSendComplete() = 0;
+
+  /**
+   * \brief  cheap, interrupt-driven check on the transmit started by 'startSendRaw()'.
+   * \returns RADIO_TX_PENDING, RADIO_TX_DONE or RADIO_TX_FAILED.
+   *    Radios that can't tell why their interrupt fired fall back to isSendComplete().
+  */
+  virtual int pollSendStatus() { return isSendComplete() ? RADIO_TX_DONE : RADIO_TX_PENDING; }
+
+  /**
+   * \brief  authoritative check, asking the chip itself (used when the TX-done interrupt is late).
+   * \returns RADIO_TX_DONE (finished, IRQ missed), RADIO_TX_PENDING (chip still transmitting),
+   *    RADIO_TX_FAILED (chip left TX without finishing), or RADIO_TX_UNKNOWN (can't tell).
+  */
+  virtual int verifySendStatus() { return RADIO_TX_UNKNOWN; }
 
   /**
    * \brief  a hook for doing any necessary clean up after transmit.
@@ -106,6 +125,8 @@ typedef uint32_t  DispatcherAction;
 #define ERR_EVENT_FULL              (1 << 0)
 #define ERR_EVENT_CAD_TIMEOUT       (1 << 1)
 #define ERR_EVENT_STARTRX_TIMEOUT   (1 << 2)
+#define ERR_EVENT_TX_FAIL           (1 << 3)
+#define ERR_EVENT_TX_STUCK          (1 << 4)
 
 /**
  * \brief  The low-level task that manages detecting incoming Packets, and the queueing
@@ -113,7 +134,7 @@ typedef uint32_t  DispatcherAction;
 */
 class Dispatcher {
   Packet* outbound;  // current outbound packet
-  unsigned long outbound_expiry, outbound_start, total_air_time;
+  unsigned long outbound_expiry, outbound_hard_expiry, outbound_start, total_air_time;
   unsigned long next_tx_time;
   unsigned long cad_busy_start;
   unsigned long radio_nonrx_start;
@@ -159,6 +180,8 @@ protected:
 
 public:
   void setRadio(Radio* r) { _radio = r; }
+  Radio* getRadio() const { return _radio; }
+  bool isSending() const { return outbound != NULL; }
 
   void begin();
   void loop();

@@ -135,6 +135,7 @@ uint32_t RadioLibWrapper::getEstAirtimeFor(int len_bytes) {
 
 bool RadioLibWrapper::startSendRaw(const uint8_t* bytes, int len) {
   _board->onBeforeTransmit();
+  _tx_poll_irq = false;
   int err = _radio->startTransmit((uint8_t *) bytes, len);
   if (err == RADIOLIB_ERR_NONE) {
     _state = STATE_TX_WAIT;
@@ -146,12 +147,47 @@ bool RadioLibWrapper::startSendRaw(const uint8_t* bytes, int len) {
 }
 
 bool RadioLibWrapper::isSendComplete() {
+  return pollSendStatus() == RADIO_TX_DONE;
+}
+
+int RadioLibWrapper::pollSendStatus() {
+  if (_state == STATE_TX_DONE) return RADIO_TX_DONE;   // already reported, not yet finished
+
   if (_state & STATE_INT_READY) {
-    _state = STATE_IDLE;
-    n_sent++;
-    return true;
+    // the same interrupt flag is used for RX and TX: confirm it really is TX-done
+    int done = readTxDoneFlag();
+    if (done != 0) {           // TX-done, or a chip that can't tell (old behaviour)
+      _state = STATE_TX_DONE;
+      n_sent++;
+      return RADIO_TX_DONE;
+    }
+    // some other IRQ (e.g. a TX timeout, or a stale RX IRQ). DIO1 may now stay high,
+    // so no new edge will arrive for TX-done: poll the chip register from here on
+    _state = STATE_TX_WAIT;
+    _tx_poll_irq = true;
+    MESH_DEBUG_PRINTLN("RadioLibWrapper: non TX-done IRQ during TX, polling");
   }
-  return false;
+
+  if (_tx_poll_irq && readTxDoneFlag() == 1) {
+    _state = STATE_TX_DONE;
+    n_sent++;
+    return RADIO_TX_DONE;
+  }
+  return RADIO_TX_PENDING;
+}
+
+int RadioLibWrapper::verifySendStatus() {
+  if (_state == STATE_TX_DONE) return RADIO_TX_DONE;
+
+  // read the mode first: if TX ends between the two reads, the TX-done flag still shows it
+  int in_tx = readInTxMode();
+  if (in_tx < 0) return RADIO_TX_UNKNOWN;
+  if (readTxDoneFlag() == 1) {
+    _state = STATE_TX_DONE;
+    n_sent++;
+    return RADIO_TX_DONE;
+  }
+  return in_tx ? RADIO_TX_PENDING : RADIO_TX_FAILED;
 }
 
 void RadioLibWrapper::onSendFinished() {

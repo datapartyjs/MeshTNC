@@ -23,4 +23,8 @@ public:
   float getLastSNR() const override {
     return ((CustomSX1281 *)_radio)->getSNR();
   }
+
+protected:
+  int readTxDoneFlag() override { return ((CustomSX1281 *)_radio)->isTxDone() ? 1 : 0; }
+  int readInTxMode() override { return ((CustomSX1281 *)_radio)->isTransmitting() ? 1 : 0; }
 };

@@ -14,8 +14,8 @@ static SPIClass spi_sx1276(HSPI);
 CustomSX1276 radio_sx1276(new Module(P_SX1276_NSS, P_SX1276_DIO0, RADIOLIB_NC, P_SX1276_DIO1, spi_sx1276));
 CustomSX1276Wrapper radio_driver(radio_sx1276, board);
 
-// Default active radio: 2.4GHz. setup() calls the_mesh.setRadio(*active_radio) after
-// radio_init() to rebind the mesh to whichever radio actually initialized successfully.
+// Active radio, selected by radio_set_params() from the frequency (>2000 MHz = SX1281).
+// MyMesh::bindActiveRadio() rebinds the Dispatcher to it whenever it changes.
 RadioLibWrapper* active_radio = &radio_driver;
 
 ESP32RTCClock fallback_clock;
@@ -59,7 +59,7 @@ bool radio_init() {
   if (!ok_2ghz) {
     Serial.println("WARN: SX1281 2.4GHz init failed, falling back to SX1276 915MHz");
   } else {
-    radio_sx1281.setCRC(0);
+    // keep the 2-byte CRC set in std_init(): without it corrupted frames reach the host
     Serial.println("SX1281 ready");
   }
 
@@ -69,7 +69,7 @@ bool radio_init() {
   bool ok_915 = radio_sx1276.std_init(&spi_sx1276);
   if (ok_915) {
     //radio_sx1276.setCurrentLimit(120);
-    radio_sx1276.setCRC(0);
+    // keep the CRC set in std_init(): without it corrupted frames reach the host
     Serial.println("SX1276 ready");
   } else {
     Serial.print("WARN: SX1276 915MHz init failed: ");
