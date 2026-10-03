@@ -21,29 +21,22 @@ static SPIClass spi_sx1276(HSPI);
 CustomSX1276 radio_sx1276(new Module(P_SX1276_NSS, P_SX1276_DIO0, RADIOLIB_NC, P_SX1276_DIO1, spi_sx1276));
 CustomSX1276Wrapper radio_driver(radio_sx1276, board);
 
-// Active radio, selected by radio_set_params() from the frequency (>2000 MHz = SX1281).
-// MyMesh::bindActiveRadio() rebinds the Dispatcher to it whenever it changes.
+// Active radio: only changed by radio_apply_params(), once a config is fully applied to it
+// (>2000 MHz = SX1281). MyMesh::applyRadioConfig() then binds the Dispatcher to it.
 RadioLibWrapper* active_radio = &radio_driver;
 
 ESP32RTCClock fallback_clock;
 AutoDiscoverRTCClock rtc_clock(fallback_clock);
 
-// Set active radio and route J2 coax via U8 RFASWA630ATF09:
+// Route J2 coax via U8 RFASWA630ATF09:
 //   LOW  → RF2 → AT2401C → SX1281 (2.4GHz)
 //   HIGH → RF1 → U6      → SX1276 (915MHz)
-// The radio being switched to is woken first (it's asleep while unused); if it doesn't
-// wake, the current radio stays active. The radio being left is put to sleep by
-// MyMesh::bindActiveRadio(), once any transmit in progress on it has finished.
-static bool select_radio(RadioLibWrapper* r) {
-  if (r != active_radio && !r->wakeRadio()) {
-    MESH_DEBUG_PRINTLN("select_radio: %s did not wake, staying on %s",
-      r == &radio_driver_2ghz ? "SX1281" : "SX1276",
-      active_radio == &radio_driver_2ghz ? "SX1281" : "SX1276");
-    return false;
-  }
-  active_radio = r;
+static void set_rf_switch(RadioLibWrapper* r) {
   digitalWrite(P_SX1281_RF_SW, (r == &radio_driver_2ghz) ? LOW : HIGH);
-  return true;
+}
+
+static RadioLibWrapper* radio_for_freq(float freq) {
+  return freq > 2000.f ? (RadioLibWrapper*) &radio_driver_2ghz : (RadioLibWrapper*) &radio_driver;
 }
 
 bool radio_init() {
@@ -52,7 +45,7 @@ bool radio_init() {
 
   pinMode(P_SX1281_BUSY, INPUT);
   pinMode(P_SX1281_RF_SW, OUTPUT);
-  select_radio(&radio_driver);  
+  set_rf_switch(&radio_driver);
 
   spi_sx1281.setFrequency(13000000);
   spi_sx1281.begin();
@@ -74,7 +67,7 @@ bool radio_init() {
   // Init SX1281 — 2400 MHz, 203.125 kHz BW, SF9, CR4/7, 20 dBm
   bool ok_2ghz = radio_sx1281.std_init(2400.0, 203.125f, 9, 7, 20, &spi_sx1281);
   if (!ok_2ghz) {
-    Serial.println("WARN: SX1281 2.4GHz init failed, falling back to SX1276 915MHz");
+    Serial.println("WARN: SX1281 2.4GHz init failed, 2.4GHz radio configs will be refused");
   } else {
     // keep the 2-byte CRC set in std_init(): without it corrupted frames reach the host
     Serial.println("SX1281 ready");
@@ -89,14 +82,13 @@ bool radio_init() {
     // keep the CRC set in std_init(): without it corrupted frames reach the host
     Serial.println("SX1276 ready");
   } else {
-    Serial.print("WARN: SX1276 915MHz init failed: ");
+    Serial.print("WARN: SX1276 init failed, sub-GHz radio configs will be refused: ");
     //Serial.println(status_915);
   }
 
-  select_radio(&radio_driver);
-
-  // the SX1281 isn't the active radio yet: sleep it until radio_set_params() selects it
-  // (a 2.4 GHz config wakes it again right away, which also exercises the wake path)
+  // Neither radio is usable until radio_apply_params() has fully configured one; until
+  // then MyMesh holds the Dispatcher's radio gate shut. The SX1281 sleeps until selected
+  // (a 2.4 GHz config wakes it again right away, which also exercises the wake path).
   if (ok_2ghz) radio_driver_2ghz.sleepRadio();
 
   return true;
@@ -109,29 +101,82 @@ uint32_t radio_get_rng_seed() {
   return radio_sx1276.random(0x7FFFFFFF);
 }
 
-void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
-  RadioLibWrapper* want = freq > 2000.f ? (RadioLibWrapper*) &radio_driver_2ghz : (RadioLibWrapper*) &radio_driver;
-  if (!select_radio(want)) return;   // couldn't wake it: these params don't fit the current radio
+// RadioLib setters all return an int16_t status; stop at the first one that fails
+#define TRY_RADIO(call)  do { int16_t _e = (call); if (_e != RADIOLIB_ERR_NONE) { \
+    MESH_DEBUG_PRINTLN("radio_apply_params: %s failed (%d)", #call, _e); return false; } } while (0)
 
-  if (active_radio == &radio_driver_2ghz) {
-    radio_sx1281.setFrequency(freq);
-    radio_sx1281.setSpreadingFactor(sf);
-    radio_sx1281.setBandwidth(bw);
-    radio_sx1281.setCodingRate(cr);
-    radio_sx1281.setSyncWord(syncWord);
-  } else {
-    radio_sx1276.setFrequency(freq);
-    radio_sx1276.setSpreadingFactor(sf);
-    radio_sx1276.setBandwidth(bw);
-    radio_sx1276.setCodingRate(cr);
-    radio_sx1276.setSyncWord(syncWord);
+static bool configure_sx1281(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
+  TRY_RADIO(radio_sx1281.setFrequency(freq));
+  TRY_RADIO(radio_sx1281.setSpreadingFactor(sf));
+  TRY_RADIO(radio_sx1281.setBandwidth(bw));
+  TRY_RADIO(radio_sx1281.setCodingRate(cr));
+  TRY_RADIO(radio_sx1281.setSyncWord(syncWord));
+  return true;
+}
+
+static bool configure_sx1276(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
+  TRY_RADIO(radio_sx1276.setFrequency(freq));
+  TRY_RADIO(radio_sx1276.setSpreadingFactor(sf));
+  TRY_RADIO(radio_sx1276.setBandwidth(bw));
+  TRY_RADIO(radio_sx1276.setCodingRate(cr));
+  TRY_RADIO(radio_sx1276.setSyncWord(syncWord));
+  return true;
+}
+
+// Strict radio (re)configuration. Must only be called while nothing is transmitting
+// (MyMesh::applyRadioConfig() holds the Dispatcher gate and waits for that).
+// Never leaves a radio usable on anything but the requested config:
+//  - the radio for the other band is put to sleep first, whatever happens next
+//  - the radio for this band is woken and every parameter must be accepted
+//  - on any failure that radio is put to sleep too, and false is returned
+// active_radio and the RF switch only change once the config is fully applied.
+bool radio_apply_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
+  RadioLibWrapper* r = radio_for_freq(freq);
+  RadioLibWrapper* other = (r == &radio_driver_2ghz) ? (RadioLibWrapper*) &radio_driver
+                                                     : (RadioLibWrapper*) &radio_driver_2ghz;
+  other->sleepRadio();
+
+  if (!r->wakeRadio()) {
+    MESH_DEBUG_PRINTLN("radio_apply_params: %s did not wake", r == &radio_driver_2ghz ? "SX1281" : "SX1276");
+    r->sleepRadio();
+    return false;
   }
+
+  bool ok = (r == &radio_driver_2ghz) ? configure_sx1281(freq, bw, sf, cr, syncWord)
+                                      : configure_sx1276(freq, bw, sf, cr, syncWord);
+  if (!ok) {
+    r->sleepRadio();   // partially configured: must not be used
+    return false;
+  }
+
+  active_radio = r;
+  set_rf_switch(r);
+  return true;
+}
+
+// put both radios to sleep: used when no valid config could be applied
+void radio_disable_all() {
+  radio_driver.sleepRadio();
+  radio_driver_2ghz.sleepRadio();
+}
+
+// kept for the common target API; BYOMesh code uses radio_apply_params() and its result
+void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord) {
+  if (!radio_apply_params(freq, bw, sf, cr, syncWord)) radio_disable_all();
 }
 
 void radio_set_tx_power(uint8_t dbm) {
-  if (active_radio == &radio_driver_2ghz){
-    radio_sx1281.setOutputPower(dbm);
-  }else{
-    radio_sx1276.setOutputPower(dbm);
+  radio_apply_tx_power(dbm);
+}
+
+// tx power for the active radio. Not fatal: an out-of-range value (e.g. above the SX1281's
+// 13 dBm) is rejected by RadioLib and the radio keeps its previous power.
+bool radio_apply_tx_power(uint8_t dbm) {
+  int16_t e = (active_radio == &radio_driver_2ghz) ? radio_sx1281.setOutputPower(dbm)
+                                                   : radio_sx1276.setOutputPower(dbm);
+  if (e != RADIOLIB_ERR_NONE) {
+    MESH_DEBUG_PRINTLN("radio_apply_tx_power(%d) failed (%d)", (int)dbm, e);
+    return false;
   }
+  return true;
 }

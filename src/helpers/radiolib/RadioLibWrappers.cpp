@@ -51,8 +51,10 @@ void RadioLibWrapper::idle() {
 }
 
 bool RadioLibWrapper::sleepRadio() {
+  if (_asleep) return true;   // another command would wake it (SX128x: NSS edge)
   int err = _radio->sleep();
   _state = STATE_IDLE;   // needs a startReceive() once woken and rebound
+  _asleep = (err == RADIOLIB_ERR_NONE);
   if (err != RADIOLIB_ERR_NONE) {
     MESH_DEBUG_PRINTLN("RadioLibWrapper: error: sleep(%d)", err);
     return false;
@@ -63,6 +65,7 @@ bool RadioLibWrapper::sleepRadio() {
 bool RadioLibWrapper::wakeRadio() {
   int err = _radio->standby();   // e.g. SX127x: writing standby to RegOpMode wakes it
   _state = STATE_IDLE;
+  _asleep = false;
   if (err != RADIOLIB_ERR_NONE) {
     MESH_DEBUG_PRINTLN("RadioLibWrapper: error: wake/standby(%d)", err);
     return false;

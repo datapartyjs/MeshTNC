@@ -55,8 +55,10 @@ public:
   virtual void dumpLogFile() = 0;
   virtual void setTxPower(uint8_t power_dbm) = 0;
   virtual void clearStats() = 0;
-  virtual void applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word, int timeout_mins) = 0;
-  virtual void applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) = 0;
+  // both return false if the radio could not be configured as requested; the radio is
+  // then disabled (no RX/TX) rather than left on any other configuration
+  virtual bool applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word, int timeout_mins) = 0;
+  virtual bool applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) = 0;
   virtual void applyBLEParams(bool enabled, bool active, bool filter_dups, uint16_t max_results, uint32_t scantime) = 0;
 };
 

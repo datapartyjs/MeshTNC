@@ -16,6 +16,7 @@ protected:
   PhysicalLayer* _radio;
   mesh::MainBoard* _board;
   volatile uint8_t _state;
+  bool _asleep;   // set by sleepRadio(): a sleeping SX128x wakes on any SPI access
   uint32_t n_recv, n_sent;
   int16_t _noise_floor, _threshold;
   uint16_t _num_floor_samples;
@@ -33,7 +34,7 @@ protected:
 
 public:
   RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board)
-    : _instance_id(-1), _tx_poll_irq(false), _radio(&radio), _board(&board), _state(0)
+    : _instance_id(-1), _tx_poll_irq(false), _radio(&radio), _board(&board), _state(0), _asleep(false)
   { n_recv = n_sent = 0; }
 
   void begin() override;

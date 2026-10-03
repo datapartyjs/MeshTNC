@@ -249,9 +249,12 @@ void CommonCLI::handleCLICommand(
         bw >= 7.0f && bw <= 1625.0f &&
         temp_timeout_mins > 0)
     {
-      _callbacks->applyTempRadioParams(freq, bw, sf, cr,
-                                       sync_word, temp_timeout_mins);
-      sprintf(resp, "OK - temp params for %d mins", temp_timeout_mins);
+      if (_callbacks->applyTempRadioParams(freq, bw, sf, cr,
+                                           sync_word, temp_timeout_mins)) {
+        sprintf(resp, "OK - temp params for %d mins", temp_timeout_mins);
+      } else {
+        strcpy(resp, "Error, radio config failed - radio disabled (no RX/TX)");
+      }
     } else {
       strcpy(resp, "Error, invalid params");
     }
@@ -354,14 +357,18 @@ void CommonCLI::handleCLICommand(
           cr >= 5 && cr <= 8 &&
           bw >= 7.0f && bw <= 1625.0f
       ){
-        _prefs->sf = sf;
-        _prefs->cr = cr;
-        _prefs->freq = freq;
-        _prefs->bw = bw;
-        _prefs->sync_word = sync_word;
-        _callbacks->savePrefs();
-        _callbacks->applyRadioParams(freq, bw, sf, cr, sync_word);
-        strcpy(resp, "OK");
+        // apply first: only a config the radio actually accepted is saved
+        if (_callbacks->applyRadioParams(freq, bw, sf, cr, sync_word)) {
+          _prefs->sf = sf;
+          _prefs->cr = cr;
+          _prefs->freq = freq;
+          _prefs->bw = bw;
+          _prefs->sync_word = sync_word;
+          _callbacks->savePrefs();
+          strcpy(resp, "OK");
+        } else {
+          strcpy(resp, "Error, radio config failed - radio disabled (no RX/TX), settings not saved");
+        }
       } else {
         strcpy(resp, "Error, invalid radio params");
       }

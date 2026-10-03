@@ -125,6 +125,10 @@ void Dispatcher::loop() {
     next_agc_reset_time = futureMillis(getAGCResetInterval());
   }
 
+  // radio being reconfigured, or disabled: no new RX or TX. Must stay after the
+  // outbound block above, so a transmit already in flight is always completed.
+  if (getRadioGate() != RADIO_GATE_OPEN) return;
+
   if (getAGCResetInterval() > 0 && millisHasNowPassed(next_agc_reset_time)) {
     _radio->resetAGC();
     next_agc_reset_time = futureMillis(getAGCResetInterval());
@@ -203,6 +207,7 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
 }
 
 void Dispatcher::checkSend() {
+  if (getRadioGate() != RADIO_GATE_OPEN) return;   // belt and braces: loop() already gates this
   if (_mgr->getOutboundCount(_ms->getMillis()) == 0) return;  // nothing waiting to send
   //if (!millisHasNowPassed(next_tx_time)) return;   // still in 'radio silence' phase (from airtime budget setting)
   if (_radio->isReceiving()) {   // LBT - check if radio is currently mid-receive, or if channel activity
@@ -278,8 +283,18 @@ void Dispatcher::releasePacket(Packet* packet) {
   _mgr->free(packet);
 }
 
+void Dispatcher::flushOutbound() {
+  Packet* pkt;
+  while ((pkt = _mgr->removeOutboundByIdx(0)) != NULL) {
+    _mgr->free(pkt);
+  }
+}
+
 void Dispatcher::sendPacket(Packet* packet, uint8_t priority, uint32_t delay_millis) {
-  if (packet->payload_len > MAX_PACKET_PAYLOAD) {
+  if (getRadioGate() == RADIO_GATE_CLOSED) {   // no valid radio config: never queue for TX
+    _err_flags |= ERR_EVENT_RADIO_DISABLED;
+    _mgr->free(packet);
+  } else if (packet->payload_len > MAX_PACKET_PAYLOAD) {
     MESH_DEBUG_PRINTLN("%s Dispatcher::sendPacket(): ERROR: invalid packet... payload_len=%d", getLogDateTime(), (uint32_t) packet->payload_len);
     _mgr->free(packet);
   } else {

@@ -27,3 +27,8 @@ bool radio_init();
 uint32_t radio_get_rng_seed();
 void radio_set_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord);
 void radio_set_tx_power(uint8_t dbm);
+
+// BYOMesh: strict config. false = radio refused it (both radios then sleep: no RX/TX)
+bool radio_apply_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord);
+bool radio_apply_tx_power(uint8_t dbm);
+void radio_disable_all();

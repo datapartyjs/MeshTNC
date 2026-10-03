@@ -80,12 +80,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   bool _logging;
   NodePrefs _prefs;
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
-  unsigned long set_radio_at, revert_radio_at;
-  float pending_freq;
-  float pending_bw;
-  uint8_t pending_sf;
-  uint8_t pending_cr;
-  uint8_t pending_sync_word;
+  unsigned long revert_radio_at;
+  int _radio_gate;   // RADIO_GATE_*: HOLD until the first config is applied
 
 #ifdef ENABLE_BLE
   NimBLEScan* bleScan;
@@ -96,6 +92,10 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
 protected:
   float getAirtimeBudgetFactor() const override {
     return _prefs.airtime_factor;
+  }
+
+  int getRadioGate() const override {
+    return _radio_gate;
   }
 
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override {
@@ -135,7 +135,8 @@ public:
   MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc)
      : mesh::Mesh(radio, ms, *new StaticPoolPacketManager(32)), _cli(board, rtc, &_prefs, this, this)
   {
-    set_radio_at = revert_radio_at = 0;
+    revert_radio_at = 0;
+    _radio_gate = RADIO_GATE_HOLD;   // no RX/TX until begin() has applied a radio config
     _logging = false;
 
 #ifdef ENABLE_BLE
@@ -164,17 +165,70 @@ public:
     _prefs.ble_scantime = 10 * 1000;
   }
 
-  // radio_set_params() may switch radios (BYOMesh: SX1281 for >2000 MHz, SX1276 otherwise).
-  // Point the Dispatcher at whichever one is active, or it keeps using the old radio.
-  void bindActiveRadio() {
-#ifdef BYOMESH
-    if (getRadio() == active_radio) return;
-    if (isSending()) return;   // never swap mid-TX; loop() retries
-    ((RadioLibWrapper*)getRadio())->sleepRadio();   // unused radio: low-power sleep
-    setRadio(active_radio);
-    active_radio->begin();     // attaches this radio's DIO1 IRQ handler, resets its state
-    MESH_DEBUG_PRINTLN("Dispatcher bound to %s radio", active_radio == &radio_driver_2ghz ? "SX1281" : "SX1276");
+#ifndef RADIO_RECONFIG_WAIT_MS
+  #define RADIO_RECONFIG_WAIT_MS  5000   // max wait for an in-flight TX before reconfiguring
 #endif
+
+  // The only place radio parameters are changed. Nothing may ever transmit on a config
+  // other than the one requested, so:
+  //  1. the Dispatcher gate is held: no new TX or RX starts from here on
+  //  2. any TX already on the air finishes (it was sent on the previous, valid config)
+  //  3. the config is applied; BYOMesh checks every step (see radio_apply_params())
+  //  4. success: the Dispatcher is bound to the configured radio and the gate opens
+  //     failure: both radios sleep, the TX queue is flushed and the gate stays CLOSED
+  //     until a later config succeeds
+  bool applyRadioConfig(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) {
+    _radio_gate = RADIO_GATE_HOLD;
+
+    unsigned long until = futureMillis(RADIO_RECONFIG_WAIT_MS);
+    while (isSending() && !millisHasNowPassed(until)) {
+      mesh::Dispatcher::loop();   // completes the TX; the gate stops anything new starting
+    }
+
+    bool ok = !isSending();
+    if (!ok) {
+      MESH_DEBUG_PRINTLN("applyRadioConfig: TX still in progress, refusing to reconfigure");
+    }
+#ifdef BYOMESH
+    if (ok) ok = radio_apply_params(freq, bw, sf, cr, sync_word);
+    if (ok) {
+      if (getRadio() != active_radio) {
+        setRadio(active_radio);
+        MESH_DEBUG_PRINTLN("Dispatcher bound to %s radio", active_radio == &radio_driver_2ghz ? "SX1281" : "SX1276");
+      }
+      active_radio->begin();   // (re)attach its DIO1 IRQ handler and reset its state
+      radio_apply_tx_power(_prefs.tx_power_dbm);   // per radio; a rejected value is not fatal
+    }
+#else
+    if (ok) {
+      radio_set_params(freq, bw, sf, cr, sync_word);
+      radio_set_tx_power(_prefs.tx_power_dbm);
+    }
+#endif
+
+    if (!ok) {
+      disableRadio();
+      return false;
+    }
+    _radio_gate = RADIO_GATE_OPEN;
+    return true;
+  }
+
+  void disableRadio() {
+    _radio_gate = RADIO_GATE_CLOSED;
+    flushOutbound();
+#ifdef BYOMESH
+    radio_disable_all();
+#endif
+  }
+
+  // for config changes not started by a CLI command (boot, temp-params revert),
+  // so the failure isn't silent. Only in CLI mode: in KISS mode it would corrupt the stream.
+  void reportRadioFailure(const char* when) {
+    if (_cli.getCLIMode() == CLIMode::CLI) {
+      Serial.print("ERROR: radio config failed ("); Serial.print(when);
+      Serial.println(") - radio disabled (no RX/TX) until 'set radio' or 'tempradio' succeeds");
+    }
   }
 
   void begin(FILESYSTEM* fs) {
@@ -182,9 +236,9 @@ public:
     _fs = fs;
     _cli.loadPrefs(_fs);
 
-    radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
-    bindActiveRadio();
-    radio_set_tx_power(_prefs.tx_power_dbm);
+    if (!applyRadioConfig(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word)) {
+      reportRadioFailure("boot");
+    }
 
 #ifdef ENABLE_BLE
     NimBLEDevice::init(std::__cxx11::string(BLE_DEVICE_NAME));
@@ -230,20 +284,20 @@ public:
   }
 
 
-  void applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word, int timeout_mins) {
-    set_radio_at = futureMillis(2000);   // give CLI reply some time to be sent back, before applying temp radio params
-    pending_freq = freq;
-    pending_bw = bw;
-    pending_sf = sf;
-    pending_cr = cr;
-    pending_sync_word = sync_word;
-
-    revert_radio_at = futureMillis(2000 + timeout_mins*60*1000);   // schedule when to revert radio params
+  // Applied immediately (MeshTNC's CLI is serial-only, so there's no remote reply to wait
+  // for), which lets the CLI report the real result instead of a premature "OK".
+  bool applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word, int timeout_mins) {
+    if (!applyRadioConfig(freq, bw, sf, cr, sync_word)) {
+      revert_radio_at = 0;
+      return false;
+    }
+    revert_radio_at = futureMillis(timeout_mins*60*1000);   // schedule when to revert radio params
+    return true;
   }
 
-  void applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) {
-    radio_set_params(freq, bw, sf, cr, sync_word);
-    bindActiveRadio();
+  bool applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) {
+    revert_radio_at = 0;   // a permanent config replaces any pending temp-params revert
+    return applyRadioConfig(freq, bw, sf, cr, sync_word);
   }
 
 
@@ -347,6 +401,7 @@ public:
 
 
   void setTxPower(uint8_t power_dbm) {
+    if (_radio_gate == RADIO_GATE_CLOSED) return;   // radios asleep; applied with the next config
     radio_set_tx_power(power_dbm);
   }
 
@@ -361,20 +416,14 @@ public:
 
   void loop() {
     mesh::Dispatcher::loop();
-    bindActiveRadio();   // completes a radio switch deferred by an in-flight TX
-
-    if (set_radio_at && millisHasNowPassed(set_radio_at)) {   // apply pending (temporary) radio params
-      set_radio_at = 0;  // clear timer
-      radio_set_params(pending_freq, pending_bw, pending_sf, pending_cr, pending_sync_word);
-      bindActiveRadio();
-      MESH_DEBUG_PRINTLN("Temp radio params");
-    }
 
     if (revert_radio_at && millisHasNowPassed(revert_radio_at)) {   // revert radio params to orig
       revert_radio_at = 0;  // clear timer
-      radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
-      bindActiveRadio();
-      MESH_DEBUG_PRINTLN("Radio params restored");
+      if (applyRadioConfig(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word)) {
+        MESH_DEBUG_PRINTLN("Radio params restored");
+      } else {
+        reportRadioFailure("tempradio revert");
+      }
     }
 
 #ifdef ENABLE_BLE

@@ -25,14 +25,18 @@ public:
   }
 
   bool sleepRadio() override {
+    if (_asleep) return true;   // any SPI command (NSS edge) would wake it again
     bool ok = ((CustomSX1281 *)_radio)->sleepRetain();
     _state = 0;   // idle: needs a startReceive() once woken and rebound
+    _asleep = ok;
     return ok;
   }
 
   bool wakeRadio() override {
     _state = 0;
-    return ((CustomSX1281 *)_radio)->wake();
+    bool ok = ((CustomSX1281 *)_radio)->wake();
+    _asleep = !ok;   // failed wake: treat as asleep so sleepRadio() sends it nothing; wake() retries
+    return ok;
   }
 
 protected:

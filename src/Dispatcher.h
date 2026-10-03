@@ -127,6 +127,16 @@ typedef uint32_t  DispatcherAction;
 #define ERR_EVENT_STARTRX_TIMEOUT   (1 << 2)
 #define ERR_EVENT_TX_FAIL           (1 << 3)
 #define ERR_EVENT_TX_STUCK          (1 << 4)
+#define ERR_EVENT_RADIO_DISABLED    (1 << 5)
+
+// Radio gate, from Dispatcher::getRadioGate():
+//   OPEN   - normal operation
+//   HOLD   - radio is being (re)configured: finish any TX in flight, start no new RX/TX,
+//            keep queued packets
+//   CLOSED - no valid radio config: no RX/TX at all, new outbound packets are dropped
+#define RADIO_GATE_OPEN     0
+#define RADIO_GATE_HOLD     1
+#define RADIO_GATE_CLOSED   2
 
 /**
  * \brief  The low-level task that manages detecting incoming Packets, and the queueing
@@ -177,11 +187,13 @@ protected:
   virtual uint32_t getCADFailMaxDuration() const;
   virtual int getInterferenceThreshold() const { return 0; }    // disabled by default
   virtual int getAGCResetInterval() const { return 0; }    // disabled by default
+  virtual int getRadioGate() const { return RADIO_GATE_OPEN; }
 
 public:
   void setRadio(Radio* r) { _radio = r; }
   Radio* getRadio() const { return _radio; }
   bool isSending() const { return outbound != NULL; }
+  void flushOutbound();   // drop every queued (not yet transmitting) outbound packet
 
   void begin();
   void loop();
