@@ -85,6 +85,20 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
  * `set`/`get ledmode command|status` - LED mode (saved). `command`: shows the color set with `ledrgb`, off at boot. `status`: shows boot, errors, busy channel, transmit, receive, BLE receive and over temperature
  * `set`/`get ledrgb <r>,<g>,<b>` - LED color, 0-255 each. Ignored when the LED is disabled or in status mode
 
+ Status mode LED colors (if several apply, the higher one in the list is shown):
+
+ | Color | Meaning |
+ |---|---|
+ | Red, blinking | Radio disabled: the radio configuration failed |
+ | Orange flash | Error: transmit failed or stuck, receive timeout, busy channel timeout or queue full |
+ | Green | Transmitting |
+ | Cyan flash | LoRa packet received |
+ | White flash | BLE advertisement received |
+ | Purple | Waiting to transmit, channel busy |
+ | Blue | Booting |
+ | Yellow, blinking | Over temperature (ESP32 core at 80 °C or above) |
+ | Off | Idle |
+
  <details>
       <summary> Existing Commands</summary>
 
