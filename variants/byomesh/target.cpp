@@ -35,6 +35,34 @@ static void set_rf_switch(RadioLibWrapper* r) {
   digitalWrite(P_SX1281_RF_SW, (r == &radio_driver_2ghz) ? LOW : HIGH);
 }
 
+// --- 2.4 GHz TX power: SX1281 -> AT2401C PA -> RF switch -> antenna -----------------------
+// AT2401C datasheet: small-signal gain 25 dB, saturated output +22 dBm, ~90 mA at +20 dBm out,
+// absolute maximum RF input +5 dBm (exceeding it can permanently damage the PA).
+// The configured tx power is the power wanted at the antenna; the SX1281 is driven at
+// (antenna power - PA gain), within its own range and never above the PA input limit.
+#ifndef BYOMESH_PA_GAIN_DB
+  #define BYOMESH_PA_GAIN_DB      25
+#endif
+#ifndef BYOMESH_PA_MAX_OUT_DBM
+  #define BYOMESH_PA_MAX_OUT_DBM  20    // stay below the +22 dBm saturation point
+#endif
+#ifndef BYOMESH_PA_MAX_IN_DBM
+  #define BYOMESH_PA_MAX_IN_DBM   0     // 5 dB margin below the +5 dBm absolute maximum
+#endif
+#define SX1281_MIN_DBM  (-18)
+#define SX1281_MAX_DBM  13
+static_assert(BYOMESH_PA_MAX_IN_DBM <= 5, "AT2401C absolute maximum RF input is +5 dBm");
+
+// SX1281 output power for a wanted power at the antenna
+static int8_t sx1281_drive_for(int antenna_dbm) {
+  if (antenna_dbm > BYOMESH_PA_MAX_OUT_DBM) antenna_dbm = BYOMESH_PA_MAX_OUT_DBM;
+  int drive = antenna_dbm - BYOMESH_PA_GAIN_DB;
+  if (drive > BYOMESH_PA_MAX_IN_DBM) drive = BYOMESH_PA_MAX_IN_DBM;
+  if (drive > SX1281_MAX_DBM) drive = SX1281_MAX_DBM;
+  if (drive < SX1281_MIN_DBM) drive = SX1281_MIN_DBM;   // ~ +7 dBm at the antenna
+  return (int8_t) drive;
+}
+
 static RadioLibWrapper* radio_for_freq(float freq) {
   return freq > 2000.f ? (RadioLibWrapper*) &radio_driver_2ghz : (RadioLibWrapper*) &radio_driver;
 }
@@ -65,7 +93,8 @@ bool radio_init() {
   spi_sx1281.endTransaction();
 
   // Init SX1281 — 2400 MHz, 203.125 kHz BW, SF9, CR4/7, 20 dBm
-  bool ok_2ghz = radio_sx1281.std_init(2400.0, 203.125f, 9, 7, 20, &spi_sx1281);
+  // start at the lowest drive; radio_apply_tx_power() sets the real one before any TX
+  bool ok_2ghz = radio_sx1281.std_init(2400.0, 203.125f, 9, 7, SX1281_MIN_DBM, &spi_sx1281);
   if (!ok_2ghz) {
     Serial.println("WARN: SX1281 2.4GHz init failed, 2.4GHz radio configs will be refused");
   } else {
@@ -169,11 +198,20 @@ void radio_set_tx_power(uint8_t dbm) {
   radio_apply_tx_power(dbm);
 }
 
-// tx power for the active radio. Not fatal: an out-of-range value (e.g. above the SX1281's
-// 13 dBm) is rejected by RadioLib and the radio keeps its previous power.
+// tx power for the active radio; dbm is the wanted power at the antenna.
+// 2.4 GHz: converted to an SX1281 drive level for the AT2401C (see sx1281_drive_for()), so it
+// is capped at BYOMESH_PA_MAX_OUT_DBM and can't go below ~+7 dBm.
+// Not fatal on failure: the radio keeps its previous power (the SX1281 starts at its minimum).
 bool radio_apply_tx_power(uint8_t dbm) {
-  int16_t e = (active_radio == &radio_driver_2ghz) ? radio_sx1281.setOutputPower(dbm)
-                                                   : radio_sx1276.setOutputPower(dbm);
+  int16_t e;
+  if (active_radio == &radio_driver_2ghz) {
+    int8_t drive = sx1281_drive_for(dbm);
+    e = radio_sx1281.setOutputPower(drive);
+    MESH_DEBUG_PRINTLN("tx power: requested %d dBm, SX1281 drive %d dBm, ~%d dBm at antenna",
+      (int)dbm, (int)drive, (int)drive + BYOMESH_PA_GAIN_DB);
+  } else {
+    e = radio_sx1276.setOutputPower(dbm);
+  }
   if (e != RADIOLIB_ERR_NONE) {
     MESH_DEBUG_PRINTLN("radio_apply_tx_power(%d) failed (%d)", (int)dbm, e);
     return false;

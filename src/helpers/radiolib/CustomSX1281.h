@@ -26,9 +26,11 @@ public:
   CustomSX1281(Module *mod) : SX1280(mod) { }
 
   // Parameters explicit — no build-flag dependency for frequency/BW/SF/CR/power.
-  // Defaults: 2400 MHz, 812.5 kHz BW, SF9, CR4/7, 20 dBm — standard 2.4GHz LoRa mesh.
+  // Defaults: 2400 MHz, 812.5 kHz BW, SF9, CR4/7, -18 dBm.
+  // power is the SX1281's own output (-18..13 dBm). With an external PA (BYOMesh: AT2401C)
+  // it is the PA's input drive, so the default is the minimum, not an antenna power.
   bool std_init(float freq = 2400.0, float bw = 812.5, uint8_t sf = 9,
-                uint8_t cr = 7, int8_t power = 20, SPIClass* spi = NULL) {
+                uint8_t cr = 7, int8_t power = -18, SPIClass* spi = NULL) {
 
     Serial.println("SX1281::stdinit spi->begin");
     if (spi) spi->begin(/*P_SX1281_SCLK, P_SX1281_MISO, P_SX1281_MOSI*/);
@@ -66,9 +68,11 @@ public:
       }
     }
 
-    // SX128x begin(): freq (MHz), bw (kHz), sf, cr, power (dBm), preambleLength
+    // SX128x begin(): freq (MHz), bw (kHz), sf, cr, syncWord, power (dBm), preambleLength.
+    // (Previously power was passed as the sync word and 12 as the power, so the chip ran at
+    // +12 dBm whatever was requested: far above the AT2401C's +5 dBm absolute max input.)
     Serial.println("SX1281::stdinit begin");
-    int status = begin(freq, bw, sf, cr, power, 12);
+    int status = begin(freq, bw, sf, cr, RADIOLIB_SX128X_SYNC_WORD_PRIVATE, power, 12);
     if (status != RADIOLIB_ERR_NONE) {
       Serial.print("ERROR: SX1281 init failed: ");
       Serial.print(status);
