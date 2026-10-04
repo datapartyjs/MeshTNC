@@ -80,6 +80,7 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
    * `max_resulrs` - Number maximum results per scan
    * `scantime` - Number of milliseconds to scan
  * `set`/`get txpower` - MeshCore's `set`/`get tx` has been renamed appropriately
+ * `get temp` - Read the MCU core temperature in °C
 
  <details>
       <summary> Existing Commands</summary>
