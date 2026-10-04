@@ -48,13 +48,15 @@ enum KISSPort: uint8_t {
 #define KISS_ACK_BAD_FRAME   0x03   // empty, too large, or not a valid frame
 
 // RX info frame, TNC -> host, when 'set kiss rxinfo on' (cmd 0xD; 0x0D on port 0):
-//   FEND 0x0D <ver=0x01> <rssi:2> <snr:1> <rx_ms:4> <frame...> FEND
+//   FEND 0x0D <seq:2> <ver=0x01> <rssi:2> <snr:1> <rx_ms:4> <frame...> FEND
+//   seq    uint16, big-endian: +1 for every RX info frame sent (wraps), in the same place as
+//          the id in an ACKMODE ack. A gap means a frame was lost on the serial link.
 //   rssi   int16, big-endian, 0.25 dB units (dBm x 4)
 //   snr    int8, 0.25 dB units (dB x 4)
 //   rx_ms  uint32, big-endian: TNC millis() at the radio's RX-done interrupt (wraps ~49.7 days)
 //   frame  exactly what a plain data (0x00) frame would carry
 #define KISS_RXINFO_VER       0x01
-#define KISS_RXINFO_HDR_LEN   8
+#define KISS_RXINFO_HDR_LEN   10
 
 class KISSModem {
   uint16_t _len;

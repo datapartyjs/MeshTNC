@@ -132,6 +132,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   unsigned long _led_boot_until, _led_crit_until, _led_rx_until, _led_ble_rx_until;
   bool _overtemp;
   unsigned long _temp_check_at;
+  uint16_t _rxinfo_seq;   // KISS RX info frame counter
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   unsigned long revert_radio_at;
   int _radio_gate;   // RADIO_GATE_*: HOLD until the first config is applied
@@ -176,7 +177,7 @@ protected:
       KISSModem* kiss = getCLI()->getKISSModem();
       uint16_t kiss_rx_len;
       if (_prefs.kiss_rxinfo) {
-        // RX info frame (see KISS.h): ver, RSSI, SNR, RX time, then the frame unchanged
+        // RX info frame (see KISS.h): seq, ver, RSSI, SNR, RX time, then the frame unchanged
         uint8_t info[KISS_RXINFO_HDR_LEN + MAX_TRANS_UNIT];
         if (len > MAX_TRANS_UNIT) len = MAX_TRANS_UNIT;
         float r4 = rssi * 4.0f, s4 = snr * 4.0f;
@@ -184,14 +185,17 @@ protected:
         int8_t snr_q = (int8_t) constrain(lroundf(s4), -128L, 127L);
         uint32_t rx_ms = getRadio()->getLastRecvMillis();
         if (rx_ms == 0) rx_ms = millis();   // radio doesn't record it: time handed over instead
-        info[0] = KISS_RXINFO_VER;
-        info[1] = (uint8_t)((uint16_t) rssi_q >> 8);
-        info[2] = (uint8_t)((uint16_t) rssi_q & 0xFF);
-        info[3] = (uint8_t) snr_q;
-        info[4] = (uint8_t)(rx_ms >> 24);
-        info[5] = (uint8_t)(rx_ms >> 16);
-        info[6] = (uint8_t)(rx_ms >> 8);
-        info[7] = (uint8_t)(rx_ms);
+        uint16_t seq = _rxinfo_seq++;
+        info[0] = (uint8_t)(seq >> 8);
+        info[1] = (uint8_t)(seq & 0xFF);
+        info[2] = KISS_RXINFO_VER;
+        info[3] = (uint8_t)((uint16_t) rssi_q >> 8);
+        info[4] = (uint8_t)((uint16_t) rssi_q & 0xFF);
+        info[5] = (uint8_t) snr_q;
+        info[6] = (uint8_t)(rx_ms >> 24);
+        info[7] = (uint8_t)(rx_ms >> 16);
+        info[8] = (uint8_t)(rx_ms >> 8);
+        info[9] = (uint8_t)(rx_ms);
         memcpy(&info[KISS_RXINFO_HDR_LEN], raw, len);
         kiss_rx_len = kiss->encodeKISSFrame(
           KISSCmd::RxInfoData, info, KISS_RXINFO_HDR_LEN + len, kiss_rx, sizeof(kiss_rx)
@@ -261,6 +265,7 @@ public:
     _led_boot_until = _led_crit_until = _led_rx_until = _led_ble_rx_until = 0;
     _overtemp = false;
     _temp_check_at = 0;
+    _rxinfo_seq = 0;
   }
 
   // Drives the LED from the saved settings; called every loop (cheap: the LED is only
