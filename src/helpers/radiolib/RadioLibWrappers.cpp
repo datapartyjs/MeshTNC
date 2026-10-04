@@ -157,6 +157,10 @@ uint32_t RadioLibWrapper::getEstAirtimeFor(int len_bytes) {
 }
 
 bool RadioLibWrapper::startSendRaw(const uint8_t* bytes, int len) {
+  if (tx_allowed && !tx_allowed()) {
+    MESH_DEBUG_PRINTLN("RadioLibWrapper: TX refused by interlock (radio not connected to the antenna)");
+    return false;
+  }
   _board->onBeforeTransmit();
   _tx_poll_irq = false;
   int err = _radio->startTransmit((uint8_t *) bytes, len);

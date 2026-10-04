@@ -248,6 +248,7 @@ void Dispatcher::checkSend() {
       bool success = _radio->startSendRaw(raw, len);
       if (!success) {
         MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): ERROR: send start failed!", getLogDateTime());
+        _err_flags |= ERR_EVENT_TX_FAIL;
 
         logTxFail(outbound, outbound->getRawLength());
   

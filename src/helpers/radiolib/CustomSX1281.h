@@ -71,6 +71,11 @@ public:
     // SX128x begin(): freq (MHz), bw (kHz), sf, cr, syncWord, power (dBm), preambleLength.
     // (Previously power was passed as the sync word and 12 as the power, so the chip ran at
     // +12 dBm whatever was requested: far above the AT2401C's +5 dBm absolute max input.)
+    // Hand the AT2401C enables to RadioLib before begin(), so they are driven from the very
+    // first mode change: RX -> RXEN high, TX -> TXEN high, standby/sleep -> both low.
+    // (They used to be registered after begin(), leaving them undriven during init.)
+    setRfSwitchPins(P_SX1281_RXEN, P_SX1281_TXEN);
+
     Serial.println("SX1281::stdinit begin");
     int status = begin(freq, bw, sf, cr, RADIOLIB_SX128X_SYNC_WORD_PRIVATE, power, 12);
     if (status != RADIOLIB_ERR_NONE) {
@@ -94,8 +99,6 @@ public:
     // Private LoRa sync word (matches SX127x/SX126x 0x12 convention)
     setSyncWord(0x12);
     setCRC(2);  // 2-byte CRC
-
-    setRfSwitchPins(P_SX1281_RXEN, P_SX1281_TXEN);
 
     return true;
   }

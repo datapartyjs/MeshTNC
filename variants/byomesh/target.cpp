@@ -28,18 +28,40 @@ RadioLibWrapper* active_radio = &radio_driver;
 ESP32RTCClock fallback_clock;
 AutoDiscoverRTCClock rtc_clock(fallback_clock);
 
-// Route J2 coax via U8 RFASWA630ATF09:
-//   LOW  → RF2 → AT2401C → SX1281 (2.4GHz)
-//   HIGH → RF1 → U6      → SX1276 (915MHz)
+// Route J2 coax via U8 RFASWA630ATF09 (RFC = J2):
+//   RF2 <- AT2401C ANT <- AT2401C TXRX <- SX1281 RFIO   (2.4 GHz)
+//   RF1 <- U6 <- SX1276                                  (sub-GHz)
+// RFASWA630ATF09 datasheet logic table: VCTL low -> RF1 on, VCTL high -> RF2 on.
+// (This used to drive VCTL LOW for the SX1281, i.e. the 2.4 GHz PA transmitted into the
+// switch's off port, 20 dB isolation, while the antenna was connected to the SX1276 side.)
+// Override with -D P_SX1281_RF_SW_2G_LEVEL=LOW if the board inverts VCTL.
+#ifndef P_SX1281_RF_SW_2G_LEVEL
+  #define P_SX1281_RF_SW_2G_LEVEL  HIGH
+#endif
+static bool rf_sw_on_2g = false;   // what set_rf_switch() last selected
+
 static void set_rf_switch(RadioLibWrapper* r) {
-  digitalWrite(P_SX1281_RF_SW, (r == &radio_driver_2ghz) ? LOW : HIGH);
+  rf_sw_on_2g = (r == &radio_driver_2ghz);
+  digitalWrite(P_SX1281_RF_SW, rf_sw_on_2g ? P_SX1281_RF_SW_2G_LEVEL : !P_SX1281_RF_SW_2G_LEVEL);
 }
 
-// --- 2.4 GHz TX power: SX1281 -> AT2401C PA -> RF switch -> antenna -----------------------
-// AT2401C datasheet: small-signal gain 25 dB, saturated output +22 dBm, ~90 mA at +20 dBm out,
-// absolute maximum RF input +5 dBm (exceeding it can permanently damage the PA).
-// The configured tx power is the power wanted at the antenna; the SX1281 is driven at
-// (antenna power - PA gain), within its own range and never above the PA input limit.
+// TX interlocks (checked by RadioLibWrapper::startSendRaw): a radio may only transmit while
+// it is the active radio and U8 connects its path to the antenna. Above all, the AT2401C PA
+// must never drive the switch's off port.
+static bool sx1281_tx_allowed() { return rf_sw_on_2g && active_radio == &radio_driver_2ghz; }
+static bool sx1276_tx_allowed() { return !rf_sw_on_2g && active_radio == &radio_driver; }
+
+// --- 2.4 GHz TX power: SX1281 RFIO -> AT2401C TXRX..ANT -> U8 RF2..RFC -> J2 ----------------
+//   SX1281 output        -18..+13 dBm (setOutputPower)
+//   AT2401C, TX          gain 25 dB small-signal, Psat +22 dBm, abs max input +5 dBm
+//   U8 RFASWA630ATF09    insertion loss 0.50 dB typ / 0.65 dB max at 2.2-2.7 GHz,
+//                        abs max RF input +35 dBm
+// The configured tx power is the power wanted at J2. The SX1281 is driven at
+// (power - PA gain), so J2 sees about 0.5 dB less than requested (switch loss, plus any
+// SX1281-to-PA matching loss), and near the top the PA compresses, so +20 dBm at the PA
+// is more like +18..19 dBm. Every error is on the low side: never more than requested.
+// PA output is capped at BYOMESH_PA_MAX_OUT_DBM (~ +19.5 dBm at J2), PA input at
+// BYOMESH_PA_MAX_IN_DBM.
 #ifndef BYOMESH_PA_GAIN_DB
   #define BYOMESH_PA_GAIN_DB      25
 #endif
@@ -63,17 +85,43 @@ static int8_t sx1281_drive_for(int antenna_dbm) {
   return (int8_t) drive;
 }
 
+// --- AT2401C PA/LNA enables: TXEN = GPIO 39 (P_SX1281_TXEN), RXEN = GPIO 40 (P_SX1281_RXEN) ---
+// SX1281 RFIO -> AT2401C TXRX. Both low = PA and LNA off (shutdown); never both high.
+// Once the SX1281 is initialised RadioLib switches them with each mode change (see
+// CustomSX1281::std_init()); at2401c_off() covers boot and every path where RadioLib may
+// not have driven them (SX1281 failed to init, failed to wake, or radios disabled).
+static void at2401c_off() {   // (U8 is left alone: a PA that is off can't drive any port)
+  digitalWrite(P_SX1281_TXEN, LOW);   // set the level before enabling the output: no glitch high
+  digitalWrite(P_SX1281_RXEN, LOW);
+  pinMode(P_SX1281_TXEN, OUTPUT);
+  pinMode(P_SX1281_RXEN, OUTPUT);
+  digitalWrite(P_SX1281_TXEN, LOW);
+  digitalWrite(P_SX1281_RXEN, LOW);
+}
+
+// Called by the Arduino core before setup(), so the AT2401C is shut down as early as
+// software can: GPIO 39/40 are undriven from reset until here (they are also the ESP32-S3
+// JTAG MTCK/MTDO pins), and setup() waits a second before radio_init().
+extern "C" void initVariant() {
+  at2401c_off();
+  pinMode(P_SX1281_RF_SW, OUTPUT);
+  set_rf_switch(&radio_driver);   // antenna on the SX1276 (non-PA) side until a radio is configured
+}
+
 static RadioLibWrapper* radio_for_freq(float freq) {
   return freq > 2000.f ? (RadioLibWrapper*) &radio_driver_2ghz : (RadioLibWrapper*) &radio_driver;
 }
 
 bool radio_init() {
+  at2401c_off();   // again, in case the core didn't call initVariant()
   fallback_clock.begin();
   rtc_clock.begin(Wire);
 
   pinMode(P_SX1281_BUSY, INPUT);
   pinMode(P_SX1281_RF_SW, OUTPUT);
   set_rf_switch(&radio_driver);
+  radio_driver.tx_allowed = sx1276_tx_allowed;
+  radio_driver_2ghz.tx_allowed = sx1281_tx_allowed;
 
   spi_sx1281.setFrequency(13000000);
   spi_sx1281.begin();
@@ -96,6 +144,7 @@ bool radio_init() {
   // start at the lowest drive; radio_apply_tx_power() sets the real one before any TX
   bool ok_2ghz = radio_sx1281.std_init(2400.0, 203.125f, 9, 7, SX1281_MIN_DBM, &spi_sx1281);
   if (!ok_2ghz) {
+    at2401c_off();
     Serial.println("WARN: SX1281 2.4GHz init failed, 2.4GHz radio configs will be refused");
   } else {
     // keep the 2-byte CRC set in std_init(): without it corrupted frames reach the host
@@ -119,6 +168,7 @@ bool radio_init() {
   // then MyMesh holds the Dispatcher's radio gate shut. The SX1281 sleeps until selected
   // (a 2.4 GHz config wakes it again right away, which also exercises the wake path).
   if (ok_2ghz) radio_driver_2ghz.sleepRadio();
+  at2401c_off();
 
   return true;
 }
@@ -164,10 +214,12 @@ bool radio_apply_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sy
   RadioLibWrapper* other = (r == &radio_driver_2ghz) ? (RadioLibWrapper*) &radio_driver
                                                      : (RadioLibWrapper*) &radio_driver_2ghz;
   other->sleepRadio();
+  if (other == &radio_driver_2ghz) at2401c_off();   // 2.4 GHz path unused: PA and LNA off
 
   if (!r->wakeRadio()) {
     MESH_DEBUG_PRINTLN("radio_apply_params: %s did not wake", r == &radio_driver_2ghz ? "SX1281" : "SX1276");
     r->sleepRadio();
+    if (r == &radio_driver_2ghz) at2401c_off();
     return false;
   }
 
@@ -175,6 +227,7 @@ bool radio_apply_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sy
                                       : configure_sx1276(freq, bw, sf, cr, syncWord);
   if (!ok) {
     r->sleepRadio();   // partially configured: must not be used
+    if (r == &radio_driver_2ghz) at2401c_off();
     return false;
   }
 
@@ -187,6 +240,7 @@ bool radio_apply_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sy
 void radio_disable_all() {
   radio_driver.sleepRadio();
   radio_driver_2ghz.sleepRadio();
+  at2401c_off();
 }
 
 // kept for the common target API; BYOMesh code uses radio_apply_params() and its result

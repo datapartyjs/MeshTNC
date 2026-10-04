@@ -40,6 +40,10 @@ public:
   void begin() override;
   void standby() { idle(); }   // stop RX/TX on this radio (used when switching radios)
 
+  // optional TX interlock set by the variant: startSendRaw() refuses to transmit while it
+  // returns false (e.g. the RF switch doesn't connect this radio to the antenna)
+  bool (*tx_allowed)() = nullptr;
+
   // low-power sleep for a radio that isn't in use (configuration is retained where the chip
   // supports it). wakeRadio() must succeed before any other call on a sleeping radio.
   virtual bool sleepRadio();
