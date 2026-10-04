@@ -276,6 +276,8 @@ Packet* Dispatcher::obtainNewPacket() {
   } else {
     pkt->payload_len = 0;
     pkt->_snr = 0;
+    pkt->tx_tagged = false;
+    pkt->tx_tag = 0;
   }
   return pkt;
 }
@@ -287,6 +289,7 @@ void Dispatcher::releasePacket(Packet* packet) {
 void Dispatcher::flushOutbound() {
   Packet* pkt;
   while ((pkt = _mgr->removeOutboundByIdx(0)) != NULL) {
+    logTxFail(pkt, pkt->getRawLength());   // never sent (e.g. KISS ACKMODE reports the failure)
     _mgr->free(pkt);
   }
 }
@@ -294,9 +297,11 @@ void Dispatcher::flushOutbound() {
 void Dispatcher::sendPacket(Packet* packet, uint8_t priority, uint32_t delay_millis) {
   if (getRadioGate() == RADIO_GATE_CLOSED) {   // no valid radio config: never queue for TX
     _err_flags |= ERR_EVENT_RADIO_DISABLED;
+    logTxFail(packet, packet->getRawLength());
     _mgr->free(packet);
   } else if (packet->payload_len > MAX_PACKET_PAYLOAD) {
     MESH_DEBUG_PRINTLN("%s Dispatcher::sendPacket(): ERROR: invalid packet... payload_len=%d", getLogDateTime(), (uint32_t) packet->payload_len);
+    logTxFail(packet, packet->getRawLength());
     _mgr->free(packet);
   } else {
     _mgr->queueOutbound(packet, priority, futureMillis(delay_millis));

@@ -15,6 +15,10 @@ public:
   uint8_t payload[MAX_PACKET_PAYLOAD];
   int8_t _snr;
 
+  // KISS ACKMODE: set when the host asked to be told once this packet has been sent
+  bool tx_tagged;
+  uint16_t tx_tag;
+
   float getSNR() const { return ((float)_snr) / 4.0f; }
 
   /**

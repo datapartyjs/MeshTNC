@@ -150,6 +150,14 @@ protected:
     return _radio_gate;
   }
 
+  // KISS ACKMODE: report sent / failed for frames the host tagged
+  void logTx(mesh::Packet* pkt, int len) override {
+    if (pkt->tx_tagged) getCLI()->getKISSModem()->sendAck(pkt->tx_tag, true);
+  }
+  void logTxFail(mesh::Packet* pkt, int len) override {
+    if (pkt->tx_tagged) getCLI()->getKISSModem()->sendAck(pkt->tx_tag, false, KISS_ACK_TX_FAILED);
+  }
+
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override {
     _led_rx_until = futureMillis(LED_RX_SHOW_MS);   // status LED: received a packet
     CLIMode cli_mode = _cli.getCLIMode();

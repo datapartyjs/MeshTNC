@@ -26,6 +26,7 @@ enum KISSCmd: uint8_t {
   TxTail = 0x4,
   FullDuplex = 0x5,
   Vendor = 0x6,
+  AckData = 0xC,   // ACKMODE (BPQ): data frame with a 2-byte id, acknowledged once sent
   Return = 0xF
 };
 
@@ -37,6 +38,13 @@ enum KISSPort: uint8_t {
   Global_Port = 0xf,
   None = 0xff
 };
+
+// ACKMODE acknowledgement, TNC -> host, on the KISS port (cmd 0xC; 0x0C on port 0):
+//   sent:    FEND 0x0C <id_hi> <id_lo> FEND             (exactly as BPQ ACKMODE)
+//   failed:  FEND 0x0C <id_hi> <id_lo> <status> FEND    (MeshTNC extension, status below)
+#define KISS_ACK_TX_FAILED   0x01   // radio failed / timed out, refused (interlock), or disabled
+#define KISS_ACK_NO_BUFFER   0x02   // all packet buffers in use: host is sending too fast
+#define KISS_ACK_BAD_FRAME   0x03   // empty, too large, or not a valid frame
 
 class KISSModem {
   uint16_t _len;
@@ -60,6 +68,8 @@ class KISSModem {
     void reset() { _len = 0; _esc = false; };
     void parseSerialKISS();
     void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, uint16_t len);
+    // ACKMODE: tell the host what happened to tagged frame <tag> (KISS mode only)
+    void sendAck(uint16_t tag, bool sent, uint8_t status = 0);
     uint16_t encodeKISSFrame(
       const KISSCmd cmd, 
       const uint8_t* data, const int data_len, 

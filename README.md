@@ -148,6 +148,10 @@ KISS mode allows for operating the LoRA radio as a KISS modem, which makes it co
  * To exit KISS mode and return to CLI mode, you can send a KISS exit sequence like so: `echo -ne '\xC0\xFF\xC0' > /dev/ttyUSBx`
    * For this to work, ensure your serial port's settings and baud rate is set correctly with `stty`
 
+### ACKMODE
+
+Send a data frame as command `0x0C` with a 2-byte id in front of it (`C0 0C <id_hi> <id_lo> <frame> C0`) and MeshTNC replies once the radio has sent it: `C0 0C <id_hi> <id_lo> C0`. If it couldn't be sent, the reply has a status byte after the id: `01` transmit failed, `02` no buffer free, `03` bad frame.
+
 ## APRS over LoRa
 
 <img src="https://github.com/user-attachments/assets/ca4e8caf-5eff-44d3-8ff0-c9d57bfc6ca3" width="40%"></img> <img src="https://github.com/user-attachments/assets/aa4506dd-34b6-4277-af8e-3470ef8f8dfa" width="40%"></img>

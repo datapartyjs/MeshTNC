@@ -47,6 +47,14 @@ uint16_t KISSModem::encodeKISSFrame(
   return kiss_buf_len;
 }
 
+void KISSModem::sendAck(uint16_t tag, bool sent, uint8_t status) {
+  if (*_cli_mode != CLIMode::KISS) return;
+  uint8_t data[3] = { (uint8_t)(tag >> 8), (uint8_t)(tag & 0xFF), status };
+  uint8_t frame[2 + 2*3 + 1];
+  uint16_t n = encodeKISSFrame(KISSCmd::AckData, data, sent ? 2 : 3, frame, sizeof(frame));   // on the KISS port
+  Serial.write(frame, n);
+}
+
 void KISSModem::parseSerialKISS() {
   char* command = _cmd;
   while (Serial.available() && _len < sizeof(_cmd)-1) {
@@ -155,6 +163,25 @@ void KISSModem::handleKISSCommand(
           break;
         }
         _mesh->sendPacket(pkt, 1/*, _txdelay*/);
+        break;
+      }
+      case KISSCmd::AckData: {
+        // ACKMODE: <id_hi> <id_lo> <frame...>. The host gets one ack per id: when the radio
+        // has finished sending it (MyMesh::logTx), or as soon as it's known to have failed.
+        if (kiss_data_len < 2) break;   // no id: nothing we could ack
+        const uint16_t tag = (static_cast<uint8_t>(kiss_data[0]) << 8) | static_cast<uint8_t>(kiss_data[1]);
+        const uint16_t frame_len = kiss_data_len - 2;
+        if (frame_len == 0 || frame_len > MAX_TRANS_UNIT) { sendAck(tag, false, KISS_ACK_BAD_FRAME); break; }
+        mesh::Packet* pkt = _mesh->obtainNewPacket();
+        if (pkt == NULL) { sendAck(tag, false, KISS_ACK_NO_BUFFER); break; }
+        if (!pkt->readFrom(reinterpret_cast<const uint8_t*>(kiss_data + 2), static_cast<uint8_t>(frame_len))) {
+          _mesh->releasePacket(pkt);
+          sendAck(tag, false, KISS_ACK_BAD_FRAME);
+          break;
+        }
+        pkt->tx_tagged = true;
+        pkt->tx_tag = tag;
+        _mesh->sendPacket(pkt, 1);   // failures from here on are acked via logTxFail()
         break;
       }
     }
