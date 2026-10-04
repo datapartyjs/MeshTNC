@@ -295,6 +295,13 @@ void CommonCLI::handleCLICommand(
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->freq));
     } else if (memcmp(config, "syncword", 8) == 0) {
       sprintf(resp, "> 0x%x", (uint32_t)_prefs->sync_word);
+    } else if (memcmp(config, "temp", 4) == 0) {   // MCU core temperature, deg C
+      float celsius;
+      if (_board->getMCUTemperature(celsius)) {
+        sprintf(resp, "> %s", StrHelper::ftoa(celsius));
+      } else {
+        strcpy(resp, "Error, no MCU temperature sensor on this board");
+      }
     } else if (memcmp(config, "ble", 3) == 0) {
       sprintf(resp, "> %s,%s,%d,%d", 
         _prefs->ble_active_scan == 1 ? "on" : "off",

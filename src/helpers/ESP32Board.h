@@ -14,6 +14,13 @@ protected:
   uint8_t startup_reason;
 
 public:
+  // on-die sensor via the Arduino core. Accurate on the ESP32-S2/S3/C3; on the original ESP32
+  // the sensor was removed in later silicon and the reading is meaningless.
+  bool getMCUTemperature(float& celsius) override {
+    celsius = temperatureRead();
+    return true;
+  }
+
   void begin() {
     // for future use, sub-classes SHOULD call this from their begin()
     startup_reason = BD_STARTUP_NORMAL;
