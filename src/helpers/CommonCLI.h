@@ -46,6 +46,9 @@ struct NodePrefs {  // persisted to file
     // Status LED (boards that have one)
     bool led_enabled;
     uint8_t led_mode;             // LED_MODE_*
+
+    // KISS: send received frames as RX info frames (cmd 0x0D) with RSSI, SNR, RX time
+    bool kiss_rxinfo;
 };
 
 #define LED_MODE_COMMAND  0   // LED shows the color set with 'set ledrgb' (off at boot)

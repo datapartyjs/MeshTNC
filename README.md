@@ -84,6 +84,11 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
  * `set`/`get led on|off` - Enable or disable the status LED (saved)
  * `set`/`get ledmode command|status` - LED mode (saved). `command`: shows the color set with `ledrgb`, off at boot. `status`: shows boot, errors, busy channel, transmit, receive, BLE receive and over temperature
  * `set`/`get ledrgb <r>,<g>,<b>` - LED color, 0-255 each. Ignored when the LED is disabled or in status mode
+ * `set`/`get kiss rxinfo on|off` - In KISS mode, send received packets as command `0x0D` frames with RSSI, SNR and the receive time in front (saved, off by default). Format: `C0 0D 01 <rssi:2> <snr:1> <rx_ms:4> <frame> C0`, RSSI and SNR in signed 0.25 dB steps, `rx_ms` the TNC's milliseconds since boot when the packet was received, multi-byte values big-endian.
+ * `get githash` - Git hash the firmware was built from (`-dirty` if there were uncommitted changes)
+ * `get builddate` - UTC date and time the firmware was built
+ * `get variant` - Board variant, PlatformIO environment and board the firmware was built for, e.g. `byomesh,BYOMesh_Repeater,esp32-s3-devkitc-1`
+ * `ver` - Now also shows the git hash, variant, environment and board
 
  Status mode LED colors (if several apply, the higher one in the list is shown):
 

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "CommonCLI.h"
+#include "BuildInfo.h"
 #include "TxtDataHelpers.h"
 #include <RTClib.h>
 
@@ -62,6 +63,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     uint8_t v;
     if (file.read(&v, 1) == 1) _prefs->led_enabled = (v != 0);
     if (file.read(&v, 1) == 1) _prefs->led_mode = (v == LED_MODE_COMMAND) ? LED_MODE_COMMAND : LED_MODE_STATUS;
+    if (file.read(&v, 1) == 1) _prefs->kiss_rxinfo = (v != 0);
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -119,6 +121,8 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     uint8_t led_enabled = _prefs->led_enabled ? 1 : 0;
     file.write(&led_enabled, 1);
     file.write(&_prefs->led_mode, 1);
+    uint8_t kiss_rxinfo = _prefs->kiss_rxinfo ? 1 : 0;
+    file.write(&kiss_rxinfo, 1);
 
     file.close();
   }
@@ -310,6 +314,14 @@ void CommonCLI::handleCLICommand(
       } else {
         strcpy(resp, "Error, no MCU temperature sensor on this board");
       }
+    } else if (memcmp(config, "kiss rxinfo", 11) == 0) {
+      sprintf(resp, "> %s", _prefs->kiss_rxinfo ? "on" : "off");
+    } else if (memcmp(config, "githash", 7) == 0) {
+      sprintf(resp, "> %s", BuildInfo::gitHash());
+    } else if (memcmp(config, "builddate", 9) == 0) {
+      sprintf(resp, "> %s", BuildInfo::date());
+    } else if (memcmp(config, "variant", 7) == 0) {
+      sprintf(resp, "> %s,%s,%s", BuildInfo::variant(), BuildInfo::env(), BuildInfo::board());
     } else if (memcmp(config, "ledrgb", 6) == 0) {
       if (!_callbacks->hasLed()) {
         strcpy(resp, "Error, no LED on this board");
@@ -451,6 +463,15 @@ void CommonCLI::handleCLICommand(
                   "KISS port must be between 0 and 15, invalid value: %d",
                   kiss_port);
         }
+      } else if (memcmp(kiss_config, "rxinfo ", 7) == 0) {
+        const char* v = &kiss_config[7];
+        if (memcmp(v, "on", 2) == 0 || memcmp(v, "off", 3) == 0) {
+          _prefs->kiss_rxinfo = (memcmp(v, "on", 2) == 0);
+          savePrefs();
+          strcpy(resp, "OK");
+        } else {
+          strcpy(resp, "Error, use: set kiss rxinfo on|off");
+        }
       } else {
         sprintf(resp, "unknown kiss config: %s", kiss_config);
       }
@@ -509,9 +530,10 @@ void CommonCLI::handleCLICommand(
     sprintf(resp, "File system erase: %s", s ? "OK" : "Err");
   } else if (memcmp(command, "ver", 3) == 0) {
     sprintf(resp,
-            "%s (Build: %s)",
+            "%s (Build: %s) git %s, variant %s, env %s, board %s",
             _callbacks->getFirmwareVer(),
-            _callbacks->getBuildDate());
+            _callbacks->getBuildDate(),
+            BuildInfo::gitHash(), BuildInfo::variant(), BuildInfo::env(), BuildInfo::board());
   } else if (memcmp(command, "log start", 9) == 0) {
     _callbacks->setLoggingOn(true);
     strcpy(resp, "   logging on");

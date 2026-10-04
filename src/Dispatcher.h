@@ -28,6 +28,12 @@ public:
   virtual void begin() { }
 
   /**
+   * \returns millis() when the radio signalled the last packet returned by recvRaw() as received
+   *    (its RX-done interrupt), or 0 if this radio doesn't record it.
+  */
+  virtual uint32_t getLastRecvMillis() const { return 0; }
+
+  /**
    * \brief  polls for incoming raw packet.
    * \param  bytes  destination to store incoming raw packet.
    * \param  sz   maximum packet size allowed.

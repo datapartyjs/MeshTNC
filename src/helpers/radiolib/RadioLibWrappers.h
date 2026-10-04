@@ -17,6 +17,8 @@ protected:
   mesh::MainBoard* _board;
   volatile uint8_t _state;
   bool _asleep;   // set by sleepRadio(): a sleeping SX128x wakes on any SPI access
+  volatile uint32_t _irq_millis;    // millis() at the last DIO interrupt (set in the ISR)
+  uint32_t _last_rx_millis;         // _irq_millis of the last packet recvRaw() returned
   uint32_t n_recv, n_sent;
   int16_t _noise_floor, _threshold;
   uint16_t _num_floor_samples;
@@ -34,7 +36,8 @@ protected:
 
 public:
   RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board)
-    : _instance_id(-1), _tx_poll_irq(false), _radio(&radio), _board(&board), _state(0), _asleep(false)
+    : _instance_id(-1), _tx_poll_irq(false), _radio(&radio), _board(&board), _state(0), _asleep(false),
+      _irq_millis(0), _last_rx_millis(0)
   { n_recv = n_sent = 0; }
 
   void begin() override;
@@ -53,6 +56,7 @@ public:
   bool startSendRaw(const uint8_t* bytes, int len) override;
   bool isSendComplete() override;
   int pollSendStatus() override;
+  uint32_t getLastRecvMillis() const override { return _last_rx_millis; }
   int verifySendStatus() override;
   void onSendFinished() override;
   bool isInRecvMode() const override;

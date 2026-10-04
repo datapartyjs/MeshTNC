@@ -17,12 +17,12 @@ int RadioLibWrapper::_next_id = 0;
 #if defined(ESP8266) || defined(ESP32)
 ICACHE_RAM_ATTR
 #endif
-void RadioLibWrapper::setFlag0() { if (_instances[0]) _instances[0]->_state |= STATE_INT_READY; }
+void RadioLibWrapper::setFlag0() { if (_instances[0]) { _instances[0]->_irq_millis = millis(); _instances[0]->_state |= STATE_INT_READY; } }
 
 #if defined(ESP8266) || defined(ESP32)
 ICACHE_RAM_ATTR
 #endif
-void RadioLibWrapper::setFlag1() { if (_instances[1]) _instances[1]->_state |= STATE_INT_READY; }
+void RadioLibWrapper::setFlag1() { if (_instances[1]) { _instances[1]->_irq_millis = millis(); _instances[1]->_state |= STATE_INT_READY; } }
 
 void RadioLibWrapper::begin() {
   if (_instance_id < 0 && _next_id < 2) {
@@ -136,6 +136,7 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
       } else {
       //  Serial.print("  readData() -> "); Serial.println(len);
         n_recv++;
+        _last_rx_millis = _irq_millis;   // RX-done interrupt time of this packet
       }
     }
     _state = STATE_IDLE;   // need another startReceive()

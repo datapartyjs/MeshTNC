@@ -62,8 +62,9 @@
 
 /* ------------------------------ Config -------------------------------- */
 
+#include <helpers/BuildInfo.h>
 #ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "1 Aug 2025"
+  #define FIRMWARE_BUILD_DATE   BuildInfo::date()   // UTC build time from build_info.py
 #endif
 
 #ifndef FIRMWARE_VERSION
@@ -170,11 +171,36 @@ protected:
       mesh::Utils::printHex(Serial, raw, len);
       Serial.println();
     } else if (cli_mode == CLIMode::KISS) {
-      uint8_t kiss_rx[CMD_BUF_LEN_MAX];
+      // worst case every byte escaped: 2x the data, plus FEND, command byte, FEND
+      uint8_t kiss_rx[2 * (KISS_RXINFO_HDR_LEN + MAX_TRANS_UNIT) + 3];
       KISSModem* kiss = getCLI()->getKISSModem();
-      uint16_t kiss_rx_len = kiss->encodeKISSFrame(
-        KISSCmd::Data, raw, len, kiss_rx, sizeof(kiss_rx)
-      );
+      uint16_t kiss_rx_len;
+      if (_prefs.kiss_rxinfo) {
+        // RX info frame (see KISS.h): ver, RSSI, SNR, RX time, then the frame unchanged
+        uint8_t info[KISS_RXINFO_HDR_LEN + MAX_TRANS_UNIT];
+        if (len > MAX_TRANS_UNIT) len = MAX_TRANS_UNIT;
+        float r4 = rssi * 4.0f, s4 = snr * 4.0f;
+        int16_t rssi_q = (int16_t) constrain(lroundf(r4), -32768L, 32767L);
+        int8_t snr_q = (int8_t) constrain(lroundf(s4), -128L, 127L);
+        uint32_t rx_ms = getRadio()->getLastRecvMillis();
+        if (rx_ms == 0) rx_ms = millis();   // radio doesn't record it: time handed over instead
+        info[0] = KISS_RXINFO_VER;
+        info[1] = (uint8_t)((uint16_t) rssi_q >> 8);
+        info[2] = (uint8_t)((uint16_t) rssi_q & 0xFF);
+        info[3] = (uint8_t) snr_q;
+        info[4] = (uint8_t)(rx_ms >> 24);
+        info[5] = (uint8_t)(rx_ms >> 16);
+        info[6] = (uint8_t)(rx_ms >> 8);
+        info[7] = (uint8_t)(rx_ms);
+        memcpy(&info[KISS_RXINFO_HDR_LEN], raw, len);
+        kiss_rx_len = kiss->encodeKISSFrame(
+          KISSCmd::RxInfoData, info, KISS_RXINFO_HDR_LEN + len, kiss_rx, sizeof(kiss_rx)
+        );
+      } else {
+        kiss_rx_len = kiss->encodeKISSFrame(
+          KISSCmd::Data, raw, len, kiss_rx, sizeof(kiss_rx)
+        );
+      }
       Serial.write(kiss_rx, kiss_rx_len);
     }
   }
@@ -226,6 +252,7 @@ public:
     _prefs.ble_scantime = 10 * 1000;
     _prefs.led_enabled = true;
     _prefs.led_mode = LED_MODE_STATUS;
+    _prefs.kiss_rxinfo = false;
 
     _led_r = _led_g = _led_b = 0;
     _led_last_mode = LED_MODE_STATUS;
