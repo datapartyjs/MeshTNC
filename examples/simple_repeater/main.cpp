@@ -441,8 +441,20 @@ void halt() {
 }
 
 
+// Host link baud rate. 115200 unless the variant sets it (BYOMesh: 921600).
+// The host side (esp-tap, lora-tun-bridge pacing) must use the same rate.
+#ifndef MESHTNC_SERIAL_BAUD
+  #define MESHTNC_SERIAL_BAUD 115200
+#endif
+#ifndef MESHTNC_SERIAL_RX_BUFFER
+  #define MESHTNC_SERIAL_RX_BUFFER 1024   // about two worst-case (fully escaped) 255-byte KISS frames
+#endif
+
 void setup() {
-  Serial.begin(115200);
+#ifdef ESP32
+  Serial.setRxBufferSize(MESHTNC_SERIAL_RX_BUFFER);   // must be before begin()
+#endif
+  Serial.begin(MESHTNC_SERIAL_BAUD);
   delay(1000);
 
   board.begin();
