@@ -58,6 +58,11 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *) &_prefs->ble_max_results, sizeof(_prefs->ble_max_results));
     file.read((uint8_t *) &_prefs->ble_scantime, sizeof(_prefs->ble_scantime));
 
+    // LED settings: older files end before these, so the defaults are kept
+    uint8_t v;
+    if (file.read(&v, 1) == 1) _prefs->led_enabled = (v != 0);
+    if (file.read(&v, 1) == 1) _prefs->led_mode = (v == LED_MODE_COMMAND) ? LED_MODE_COMMAND : LED_MODE_STATUS;
+
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
     _prefs->tx_delay_factor = constrain(_prefs->tx_delay_factor, 0, 2.0f);
@@ -111,6 +116,9 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *) &_prefs->ble_active_scan, sizeof(_prefs->ble_active_scan));
     file.write((uint8_t *) &_prefs->ble_max_results, sizeof(_prefs->ble_max_results));
     file.write((uint8_t *) &_prefs->ble_scantime, sizeof(_prefs->ble_scantime));
+    uint8_t led_enabled = _prefs->led_enabled ? 1 : 0;
+    file.write(&led_enabled, 1);
+    file.write(&_prefs->led_mode, 1);
 
     file.close();
   }
@@ -302,6 +310,26 @@ void CommonCLI::handleCLICommand(
       } else {
         strcpy(resp, "Error, no MCU temperature sensor on this board");
       }
+    } else if (memcmp(config, "ledrgb", 6) == 0) {
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else {
+        uint8_t r, g, b;
+        _callbacks->getLedColor(r, g, b);
+        sprintf(resp, "> %d,%d,%d", r, g, b);
+      }
+    } else if (memcmp(config, "ledmode", 7) == 0) {
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else {
+        sprintf(resp, "> %s", _prefs->led_mode == LED_MODE_COMMAND ? "command" : "status");
+      }
+    } else if (memcmp(config, "led", 3) == 0) {   // after ledrgb / ledmode
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else {
+        sprintf(resp, "> %s", _prefs->led_enabled ? "on" : "off");
+      }
     } else if (memcmp(config, "ble", 3) == 0) {
       sprintf(resp, "> %s,%s,%d,%d", 
         _prefs->ble_active_scan == 1 ? "on" : "off",
@@ -425,6 +453,49 @@ void CommonCLI::handleCLICommand(
         }
       } else {
         sprintf(resp, "unknown kiss config: %s", kiss_config);
+      }
+    } else if (memcmp(config, "led ", 4) == 0) {
+      const char* v = &config[4];
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else if (memcmp(v, "on", 2) == 0 || memcmp(v, "off", 3) == 0) {
+        _prefs->led_enabled = (memcmp(v, "on", 2) == 0);
+        savePrefs();
+        _callbacks->applyLedSettings();
+        strcpy(resp, "OK");
+      } else {
+        strcpy(resp, "Error, use: set led on|off");
+      }
+    } else if (memcmp(config, "ledmode ", 8) == 0) {
+      const char* v = &config[8];
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else if (memcmp(v, "command", 7) == 0 || memcmp(v, "status", 6) == 0) {
+        _prefs->led_mode = (memcmp(v, "command", 7) == 0) ? LED_MODE_COMMAND : LED_MODE_STATUS;
+        savePrefs();
+        _callbacks->applyLedSettings();
+        strcpy(resp, "OK");
+      } else {
+        strcpy(resp, "Error, use: set ledmode command|status");
+      }
+    } else if (memcmp(config, "ledrgb ", 7) == 0) {
+      strcpy(_tmp, &config[7]);
+      const char *parts[3];
+      int num = mesh::Utils::parseTextParts(_tmp, parts, 3);
+      int r = num > 0 ? atoi(parts[0]) : -1;
+      int g = num > 1 ? atoi(parts[1]) : -1;
+      int b = num > 2 ? atoi(parts[2]) : -1;
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else if (num != 3 || r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255) {
+        strcpy(resp, "Error, use: set ledrgb <r>,<g>,<b> (0-255 each)");
+      } else if (!_prefs->led_enabled) {
+        strcpy(resp, "Ignored - LED is disabled");
+      } else if (_prefs->led_mode != LED_MODE_COMMAND) {
+        strcpy(resp, "Ignored - LED is in status mode");
+      } else {
+        _callbacks->setLedColor(r, g, b);
+        strcpy(resp, "OK");
       }
     } else if (sender_timestamp == 0 && memcmp(config, "freq ", 5) == 0) {
       _prefs->freq = atof(&config[5]);

@@ -193,6 +193,8 @@ public:
   void setRadio(Radio* r) { _radio = r; }
   Radio* getRadio() const { return _radio; }
   bool isSending() const { return outbound != NULL; }
+  // a packet is waiting because listen-before-talk found the channel busy
+  bool isChannelBusy() const { return cad_busy_start != 0 && _mgr->getOutboundCount(_ms->getMillis()) > 0; }
   void flushOutbound();   // drop every queued (not yet transmitting) outbound packet
 
   void begin();

@@ -42,7 +42,14 @@ struct NodePrefs {  // persisted to file
     uint32_t ble_scantime;    // 10s in milliseconds
     uint8_t ble_rxPhyMask;        // BLE_GAP_LE_PHY_ANY_MASK = 0x0F
     uint8_t ble_txPhyMask;        // BLE_GAP_LE_PHY_ANY_MASK = 0x0F
+
+    // Status LED (boards that have one)
+    bool led_enabled;
+    uint8_t led_mode;             // LED_MODE_*
 };
+
+#define LED_MODE_COMMAND  0   // LED shows the color set with 'set ledrgb' (off at boot)
+#define LED_MODE_STATUS   1   // LED shows node status (boot, errors, busy channel, TX)
 
 class CommonCLICallbacks {
 public:
@@ -55,6 +62,12 @@ public:
   virtual void dumpLogFile() = 0;
   virtual void setTxPower(uint8_t power_dbm) = 0;
   virtual void clearStats() = 0;
+
+  // status LED; the defaults are for boards without one
+  virtual bool hasLed() { return false; }
+  virtual void applyLedSettings() { }   // led_enabled / led_mode changed
+  virtual void setLedColor(uint8_t r, uint8_t g, uint8_t b) { }
+  virtual void getLedColor(uint8_t& r, uint8_t& g, uint8_t& b) { r = g = b = 0; }
   // both return false if the radio could not be configured as requested; the radio is
   // then disabled (no RX/TX) rather than left on any other configuration
   virtual bool applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word, int timeout_mins) = 0;

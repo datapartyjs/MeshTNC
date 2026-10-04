@@ -17,6 +17,49 @@
 #include <RTClib.h>
 #include <target.h>
 
+// --- status LED: one APA102 on P_LED_DATA (data) + P_LED_CLK (clock) ----------------------
+#if defined(P_LED_DATA) && defined(P_LED_CLK)
+  #define HAS_STATUS_LED 1
+  #include <helpers/APA102Led.h>
+  #ifndef LED_GLOBAL_BRIGHTNESS
+    #define LED_GLOBAL_BRIGHTNESS  31     // APA102 global brightness, 0..31
+  #endif
+  static APA102Led status_led(P_LED_DATA, P_LED_CLK, LED_GLOBAL_BRIGHTNESS);
+#elif defined(P_LED_DATA)
+  #warning "P_LED_DATA is set but P_LED_CLK is not: an APA102 needs a clock pin too. Building without LED support."
+#endif
+
+// status mode colors (r, g, b) and timings
+#define LED_COLOR_BOOT       0,   0,  64   // blue:   booting, and for LED_BOOT_SHOW_MS after
+#define LED_COLOR_FATAL     64,   0,   0   // red:    blinking while the radio is disabled
+#define LED_COLOR_CRITICAL  64,  24,   0   // orange: flash on a new TX/RX/queue error
+#define LED_COLOR_CAD_BUSY  32,   0,  48   // purple: a packet is waiting for a busy channel
+#define LED_COLOR_TX         0,  64,   0   // green:  transmitting, off when the send completes
+#define LED_COLOR_RX         0,  32,  48   // cyan:   flash on each received packet
+#define LED_COLOR_BLE_RX    24,  24,  24   // white:  flash on each received BLE advertisement
+#define LED_COLOR_OVERTEMP  48,  40,   0   // yellow: slow blink while over temperature
+#define LED_BOOT_SHOW_MS       1000
+#define LED_CRITICAL_SHOW_MS    300
+#define LED_RX_SHOW_MS           50
+#define LED_BLE_RX_SHOW_MS       50
+#define LED_OVERTEMP_BLINK_MS   500
+
+// Over-temperature, from the ESP32-S3's on-die sensor read every TEMP_CHECK_MS. The ESP32-S3,
+// SX128x and SX1276 are all rated for -40..+85 C, and the die reads hotter than the board
+// around it, so 80 C on the die leaves margin for all three. Clears TEMP_HYST_C below that.
+#ifndef TEMP_CHECK_MS
+  #define TEMP_CHECK_MS           5000
+#endif
+#ifndef OVERTEMP_C
+  #define OVERTEMP_C              80.0f
+#endif
+#ifndef OVERTEMP_HYST_C
+  #define OVERTEMP_HYST_C          5.0f
+#endif
+#define LED_FATAL_BLINK_MS      250
+#define LED_CRITICAL_ERR_MASK  (ERR_EVENT_FULL | ERR_EVENT_CAD_TIMEOUT | ERR_EVENT_STARTRX_TIMEOUT | \
+                                ERR_EVENT_TX_FAIL | ERR_EVENT_TX_STUCK)
+
 /* ------------------------------ Config -------------------------------- */
 
 #ifndef FIRMWARE_BUILD_DATE
@@ -79,6 +122,15 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   CommonCLI _cli;
   bool _logging;
   NodePrefs _prefs;
+
+  // status LED state
+  uint8_t _led_r, _led_g, _led_b;    // command mode color (not saved: off at boot)
+  uint8_t _led_last_mode;
+  uint16_t _led_seen_flags;          // Dispatcher error flags already flashed for
+  bool _led_booting;
+  unsigned long _led_boot_until, _led_crit_until, _led_rx_until, _led_ble_rx_until;
+  bool _overtemp;
+  unsigned long _temp_check_at;
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   unsigned long revert_radio_at;
   int _radio_gate;   // RADIO_GATE_*: HOLD until the first config is applied
@@ -99,6 +151,7 @@ protected:
   }
 
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override {
+    _led_rx_until = futureMillis(LED_RX_SHOW_MS);   // status LED: received a packet
     CLIMode cli_mode = _cli.getCLIMode();
     if (cli_mode == CLIMode::CLI) {
       if (!_prefs.log_rx) return;
@@ -163,7 +216,86 @@ public:
     _prefs.ble_active_scan = false;
     _prefs.ble_max_results = 100;
     _prefs.ble_scantime = 10 * 1000;
+    _prefs.led_enabled = true;
+    _prefs.led_mode = LED_MODE_STATUS;
+
+    _led_r = _led_g = _led_b = 0;
+    _led_last_mode = LED_MODE_STATUS;
+    _led_seen_flags = 0;
+    _led_booting = false;
+    _led_boot_until = _led_crit_until = _led_rx_until = _led_ble_rx_until = 0;
+    _overtemp = false;
+    _temp_check_at = 0;
   }
+
+  // Drives the LED from the saved settings; called every loop (cheap: the LED is only
+  // written when its color changes). In status mode, highest priority first:
+  //   radio disabled (fatal) > new error (critical) > TX > RX > BLE RX > busy channel > boot
+  //   > over temperature > off
+  void updateStatusLed() {
+#ifdef HAS_STATUS_LED
+    uint16_t new_flags = _err_flags & ~_led_seen_flags;   // track even when the LED is off,
+    _led_seen_flags = _err_flags;                         // so enabling it doesn't flash old errors
+    if (new_flags & LED_CRITICAL_ERR_MASK) _led_crit_until = futureMillis(LED_CRITICAL_SHOW_MS);
+
+    if (_prefs.led_mode != _led_last_mode) {   // entering command mode starts dark
+      if (_prefs.led_mode == LED_MODE_COMMAND) _led_r = _led_g = _led_b = 0;
+      _led_last_mode = _prefs.led_mode;
+    }
+
+    if (!_prefs.led_enabled) {
+      status_led.off();
+    } else if (_prefs.led_mode == LED_MODE_COMMAND) {
+      status_led.set(_led_r, _led_g, _led_b);
+    } else if (_radio_gate == RADIO_GATE_CLOSED) {
+      if ((_ms->getMillis() / LED_FATAL_BLINK_MS) & 1) status_led.set(LED_COLOR_FATAL); else status_led.off();
+    } else if (!millisHasNowPassed(_led_crit_until)) {
+      status_led.set(LED_COLOR_CRITICAL);
+    } else if (isSending()) {
+      status_led.set(LED_COLOR_TX);
+    } else if (!millisHasNowPassed(_led_rx_until)) {
+      status_led.set(LED_COLOR_RX);
+    } else if (!millisHasNowPassed(_led_ble_rx_until)) {
+      status_led.set(LED_COLOR_BLE_RX);
+    } else if (isChannelBusy()) {
+      status_led.set(LED_COLOR_CAD_BUSY);
+    } else if (_led_booting || !millisHasNowPassed(_led_boot_until)) {
+      status_led.set(LED_COLOR_BOOT);
+    } else if (_overtemp) {
+      if ((_ms->getMillis() / LED_OVERTEMP_BLINK_MS) & 1) status_led.set(LED_COLOR_OVERTEMP); else status_led.off();
+    } else {
+      status_led.off();
+    }
+#endif
+  }
+
+  // every TEMP_CHECK_MS: read the ESP32 core temperature, with hysteresis on the alarm
+  void checkTemperature() {
+#ifdef HAS_STATUS_LED
+    if (!millisHasNowPassed(_temp_check_at)) return;
+    _temp_check_at = futureMillis(TEMP_CHECK_MS);
+
+    float celsius;
+    if (!board.getMCUTemperature(celsius)) return;
+    if (!_overtemp && celsius >= OVERTEMP_C) {
+      _overtemp = true;
+      MESH_DEBUG_PRINTLN("over temperature: %s C", StrHelper::ftoa(celsius));
+    } else if (_overtemp && celsius <= OVERTEMP_C - OVERTEMP_HYST_C) {
+      _overtemp = false;
+      MESH_DEBUG_PRINTLN("temperature back to normal: %s C", StrHelper::ftoa(celsius));
+    }
+#endif
+  }
+
+#ifdef HAS_STATUS_LED
+  bool hasLed() override { return true; }
+  void applyLedSettings() override { updateStatusLed(); }
+  void setLedColor(uint8_t r, uint8_t g, uint8_t b) override {
+    _led_r = r; _led_g = g; _led_b = b;
+    updateStatusLed();
+  }
+  void getLedColor(uint8_t& r, uint8_t& g, uint8_t& b) override { r = _led_r; g = _led_g; b = _led_b; }
+#endif
 
 #ifndef RADIO_RECONFIG_WAIT_MS
   #define RADIO_RECONFIG_WAIT_MS  5000   // max wait for an in-flight TX before reconfiguring
@@ -236,9 +368,17 @@ public:
     _fs = fs;
     _cli.loadPrefs(_fs);
 
+    _led_last_mode = _prefs.led_mode;   // command mode: off at boot (color isn't saved)
+    _led_booting = true;
+    updateStatusLed();
+
     if (!applyRadioConfig(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word)) {
       reportRadioFailure("boot");
     }
+
+    _led_booting = false;
+    _led_boot_until = futureMillis(LED_BOOT_SHOW_MS);
+    updateStatusLed();
 
 #ifdef ENABLE_BLE
     NimBLEDevice::init(std::__cxx11::string(BLE_DEVICE_NAME));
@@ -366,9 +506,11 @@ public:
         }
 
         blePacketRxCount++;
+        _led_ble_rx_until = futureMillis(LED_BLE_RX_SHOW_MS);   // status LED: BLE advertisement
         // a full scan dump is hundreds of ms of blocking serial writes:
-        // keep servicing the LoRa radio between results
+        // keep servicing the LoRa radio (and the status LED) between results
         mesh::Dispatcher::loop();
+        updateStatusLed();
       }
 
       bleReported = false;
@@ -416,6 +558,8 @@ public:
 
   void loop() {
     mesh::Dispatcher::loop();
+    checkTemperature();
+    updateStatusLed();
 
     if (revert_radio_at && millisHasNowPassed(revert_radio_at)) {   // revert radio params to orig
       revert_radio_at = 0;  // clear timer
@@ -458,6 +602,9 @@ void setup() {
   delay(1000);
 
   board.begin();
+#ifdef HAS_STATUS_LED
+  status_led.begin();   // off until the saved LED settings are loaded
+#endif
 
   if (!radio_init()) { halt(); }
 #ifdef BYOMESH

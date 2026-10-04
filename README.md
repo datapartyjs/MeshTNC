@@ -81,6 +81,9 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
    * `scantime` - Number of milliseconds to scan
  * `set`/`get txpower` - MeshCore's `set`/`get tx` has been renamed appropriately
  * `get temp` - Read the MCU core temperature in °C
+ * `set`/`get led on|off` - Enable or disable the status LED (saved)
+ * `set`/`get ledmode command|status` - LED mode (saved). `command`: shows the color set with `ledrgb`, off at boot. `status`: shows boot, errors, busy channel, transmit, receive, BLE receive and over temperature
+ * `set`/`get ledrgb <r>,<g>,<b>` - LED color, 0-255 each. Ignored when the LED is disabled or in status mode
 
  <details>
       <summary> Existing Commands</summary>
