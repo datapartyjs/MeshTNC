@@ -314,6 +314,13 @@ void CommonCLI::handleCLICommand(
       } else {
         strcpy(resp, "Error, no MCU temperature sensor on this board");
       }
+    } else if (memcmp(config, "id", 2) == 0 && (config[2] == 0 || config[2] == ' ')) {
+      char id[32];
+      if (_board->getUniqueId(id, sizeof(id))) {
+        sprintf(resp, "> %s", id);
+      } else {
+        strcpy(resp, "Error, no unique ID on this board");
+      }
     } else if (memcmp(config, "kiss rxinfo", 11) == 0) {
       sprintf(resp, "> %s", _prefs->kiss_rxinfo ? "on" : "off");
     } else if (memcmp(config, "githash", 7) == 0) {
