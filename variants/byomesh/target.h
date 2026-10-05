@@ -32,3 +32,10 @@ void radio_set_tx_power(uint8_t dbm);
 bool radio_apply_params(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t syncWord);
 bool radio_apply_tx_power(uint8_t dbm);
 void radio_disable_all();
+
+// power off (see target.cpp): radios numbered by frequency, 1 = SX1276, 2 = SX1281
+int radio_count();
+const char* radio_name(int n);
+bool radio_is_active(int n);
+bool radio_power_off(int n);
+void board_power_off();   // doesn't return

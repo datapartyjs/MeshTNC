@@ -80,6 +80,8 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
    * `scantime` - Number of milliseconds to scan
  * `set`/`get txpower` - MeshCore's `set`/`get tx` has been renamed appropriately
  * `get temp` - Read the MCU core temperature in °C
+ * `poweroff` - Turn off all LoRa radios, then power down the MCU (BYOMesh: deep sleep until a reset or power cycle)
+ * `poweroff lora [<n>]` - Turn off (sleep) all LoRa radios, or radio `<n>`, numbered by frequency (BYOMesh: 1 = SX1276, 2 = SX1281). Turning off the active radio stops RX/TX until `set radio` or a reboot
  * `set`/`get led on|off` - Enable or disable the status LED (saved)
  * `set`/`get ledmode command|status` - LED mode (saved). `command`: shows the color set with `ledrgb`, off at boot. `status`: shows boot, errors, busy channel, transmit, receive, BLE receive and over temperature
  * `set`/`get ledrgb <r>,<g>,<b>` - LED color, 0-255 each. Ignored when the LED is disabled or in status mode

@@ -133,6 +133,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   bool _overtemp;
   unsigned long _temp_check_at;
   uint16_t _rxinfo_seq;   // KISS RX info frame counter
+  bool _radios_off;           // radio gate closed by 'poweroff lora', not by a failure
+  unsigned long _poweroff_at; // 'poweroff': when to power down (after the reply is out)
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   unsigned long revert_radio_at;
   int _radio_gate;   // RADIO_GATE_*: HOLD until the first config is applied
@@ -266,6 +268,8 @@ public:
     _overtemp = false;
     _temp_check_at = 0;
     _rxinfo_seq = 0;
+    _radios_off = false;
+    _poweroff_at = 0;
   }
 
   // Drives the LED from the saved settings; called every loop (cheap: the LED is only
@@ -287,6 +291,8 @@ public:
       status_led.off();
     } else if (_prefs.led_mode == LED_MODE_COMMAND) {
       status_led.set(_led_r, _led_g, _led_b);
+    } else if (_radio_gate == RADIO_GATE_CLOSED && _radios_off) {
+      status_led.off();   // radios powered off on purpose: not an error
     } else if (_radio_gate == RADIO_GATE_CLOSED) {
       if ((_ms->getMillis() / LED_FATAL_BLINK_MS) & 1) status_led.set(LED_COLOR_FATAL); else status_led.off();
     } else if (!millisHasNowPassed(_led_crit_until)) {
@@ -379,11 +385,57 @@ public:
 #endif
 
     if (!ok) {
+      _radios_off = false;   // a failure, not a power-off
       disableRadio();
       return false;
     }
+    _radios_off = false;
     _radio_gate = RADIO_GATE_OPEN;
     return true;
+  }
+
+  // 'poweroff lora [n]'. Powering off the active radio closes the radio gate the same way a
+  // failed config does (no RX or TX, queued frames failed), until 'set radio' / 'tempradio'
+  // applies a config again or the board reboots.
+  void powerOffRadios(int which, char* resp) override {
+#ifdef BYOMESH
+    if (which < 0 || which > radio_count()) {
+      sprintf(resp, "Error, no LoRa radio %d (1..%d)", which, radio_count());
+      return;
+    }
+    bool active = (which == 0);
+    for (int n = 1; n <= radio_count() && !active; n++) active = (n == which) && radio_is_active(n);
+
+    if (active) {   // let a transmit already on the air finish, start nothing new
+      _radio_gate = RADIO_GATE_HOLD;
+      unsigned long until = futureMillis(RADIO_RECONFIG_WAIT_MS);
+      while (isSending() && !millisHasNowPassed(until)) mesh::Dispatcher::loop();
+      _radio_gate = RADIO_GATE_CLOSED;
+      _radios_off = true;
+      flushOutbound();
+    }
+
+    bool ok = true;
+    for (int n = 1; n <= radio_count(); n++) {
+      if (which == 0 || which == n) ok = radio_power_off(n) && ok;
+    }
+
+    if (which == 0) strcpy(resp, ok ? "OK - LoRa radios off" : "OK - LoRa radios off (a radio didn't confirm sleep)");
+    else sprintf(resp, "OK - LoRa radio %d (%s) off%s", which, radio_name(which), ok ? "" : " (didn't confirm sleep)");
+    if (active) strcat(resp, ", no RX/TX until 'set radio' or reboot");
+#else
+    strcpy(resp, "Error, not supported on this board");
+#endif
+  }
+
+  // 'poweroff': the reply goes out first (serial CLI or KISS port 1), loop() does the rest
+  void powerOffBoard(char* resp) override {
+#ifdef BYOMESH
+    _poweroff_at = futureMillis(200);
+    strcpy(resp, "OK - powering off, wake with a reset or power cycle");
+#else
+    strcpy(resp, "Error, not supported on this board");
+#endif
   }
 
   void disableRadio() {
@@ -597,6 +649,17 @@ public:
   }
 
   void loop() {
+#ifdef BYOMESH
+    if (_poweroff_at && millisHasNowPassed(_poweroff_at)) {
+      _radio_gate = RADIO_GATE_CLOSED;
+      flushOutbound();
+  #ifdef HAS_STATUS_LED
+      status_led.off();
+  #endif
+      Serial.flush();
+      board_power_off();   // doesn't return
+    }
+#endif
     mesh::Dispatcher::loop();
     checkTemperature();
     updateStatusLed();

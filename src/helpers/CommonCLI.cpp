@@ -182,6 +182,23 @@ void CommonCLI::handleCLICommand(
 ){
   if (memcmp(command, "reboot", 6) == 0) {
     _board->reboot();  // doesn't return
+  } else if (memcmp(command, "poweroff", 8) == 0 && (command[8] == 0 || command[8] == ' ')) {
+    const char* arg = &command[8];
+    while (*arg == ' ') arg++;
+    if (*arg == 0) {
+      _callbacks->powerOffBoard(resp);
+    } else if (memcmp(arg, "lora", 4) == 0 && (arg[4] == 0 || arg[4] == ' ')) {
+      const char* n = &arg[4];
+      while (*n == ' ') n++;
+      int which = (*n == 0) ? 0 : atoi(n);
+      if (*n != 0 && which <= 0) {
+        strcpy(resp, "Error, use: poweroff lora [<radio number>]");
+      } else {
+        _callbacks->powerOffRadios(which, resp);
+      }
+    } else {
+      strcpy(resp, "Error, use: poweroff, or poweroff lora [<radio number>]");
+    }
   } else if (memcmp(command, "serial mode ", 12) == 0) {
     const char* mode = &command[12];
     if (memcmp(mode, "kiss", 4) == 0) {

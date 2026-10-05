@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include "target.h"
+#include "driver/gpio.h"
+#include "esp_sleep.h"
 
 ESP32Board board;
 
@@ -103,6 +105,16 @@ static void at2401c_off() {   // (U8 is left alone: a PA that is off can't drive
 // software can: GPIO 39/40 are undriven from reset until here (they are also the ESP32-S3
 // JTAG MTCK/MTDO pins), and setup() waits a second before radio_init().
 extern "C" void initVariant() {
+  // pins held by board_power_off() stay held until released (a reset may not clear it)
+  gpio_deep_sleep_hold_dis();
+  gpio_hold_dis((gpio_num_t) P_SX1281_TXEN);
+  gpio_hold_dis((gpio_num_t) P_SX1281_RXEN);
+  gpio_hold_dis((gpio_num_t) P_SX1281_NSS);
+  gpio_hold_dis((gpio_num_t) P_SX1276_NSS);
+#if defined(P_LED_DATA) && defined(P_LED_CLK)
+  gpio_hold_dis((gpio_num_t) P_LED_DATA);
+  gpio_hold_dis((gpio_num_t) P_LED_CLK);
+#endif
   at2401c_off();
   pinMode(P_SX1281_RF_SW, OUTPUT);
   set_rf_switch(&radio_driver);   // antenna on the SX1276 (non-PA) side until a radio is configured
@@ -271,4 +283,55 @@ bool radio_apply_tx_power(uint8_t dbm) {
     return false;
   }
   return true;
+}
+
+// --- power off -----------------------------------------------------------------------------
+// LoRa radios are numbered by frequency: 1 = SX1276 (sub-GHz), 2 = SX1281 (2.4 GHz).
+// Neither can be power-gated on this board (both NRESETs are on CHIP_PU, no supply switch),
+// so "off" is each chip's sleep mode. On the 2.4 GHz path the AT2401C goes to shutdown
+// (TXEN and RXEN both low), its lowest-current mode; its RX mode keeps the LNA powered.
+int radio_count() { return 2; }
+
+const char* radio_name(int n) {
+  return n == 1 ? "SX1276" : n == 2 ? "SX1281" : "?";
+}
+
+bool radio_is_active(int n) {
+  return (n == 1 && active_radio == &radio_driver) || (n == 2 && active_radio == &radio_driver_2ghz);
+}
+
+bool radio_power_off(int n) {
+  if (n == 1) return radio_driver.sleepRadio();
+  if (n == 2) {
+    bool ok = radio_driver_2ghz.sleepRadio();
+    at2401c_off();
+    return ok;
+  }
+  return false;
+}
+
+static void hold_level(int pin, int level) {
+  digitalWrite(pin, level);
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, level);
+  gpio_hold_en((gpio_num_t) pin);
+}
+
+// Radios to sleep, then the ESP32-S3 into deep sleep with no wake-up source: it stays
+// there until a reset (EN, e.g. esptool's RTS reset) or a power cycle. Pins would float in
+// deep sleep, so the ones that matter are held: the AT2401C enables low (PA and LNA off),
+// both radios' NSS high (an NSS edge wakes the SX1281), the LED lines low.
+void board_power_off() {
+  radio_disable_all();
+  hold_level(P_SX1281_TXEN, LOW);
+  hold_level(P_SX1281_RXEN, LOW);
+  hold_level(P_SX1281_NSS, HIGH);
+  hold_level(P_SX1276_NSS, HIGH);
+#if defined(P_LED_DATA) && defined(P_LED_CLK)
+  hold_level(P_LED_DATA, LOW);
+  hold_level(P_LED_CLK, LOW);
+#endif
+  gpio_deep_sleep_hold_en();
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  esp_deep_sleep_start();   // doesn't return
 }

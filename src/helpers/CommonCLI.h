@@ -66,6 +66,11 @@ public:
   virtual void setTxPower(uint8_t power_dbm) = 0;
   virtual void clearStats() = 0;
 
+  // poweroff: which = 0 for all LoRa radios, else 1.. by frequency. The defaults are for
+  // boards that don't support it.
+  virtual void powerOffRadios(int which, char* resp) { strcpy(resp, "Error, not supported on this board"); }
+  virtual void powerOffBoard(char* resp) { strcpy(resp, "Error, not supported on this board"); }
+
   // status LED; the defaults are for boards without one
   virtual bool hasLed() { return false; }
   virtual void applyLedSettings() { }   // led_enabled / led_mode changed
