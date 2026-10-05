@@ -33,9 +33,10 @@ enum KISSCmd: uint8_t {
 
 enum KISSPort: uint8_t {
   LoRa_Port = 0x0,
-  GPS_Port = 0x1,
+  CLI_Port = 0x1,   // the text CLI over KISS: data frame = one command, reply = one data frame
   BLE_Port = 0x2,
   WiFi_Port = 0x3,
+  GPS_Port = 0x4,
   Global_Port = 0xf,
   None = 0xff
 };
@@ -58,7 +59,14 @@ enum KISSPort: uint8_t {
 #define KISS_RXINFO_VER       0x01
 #define KISS_RXINFO_HDR_LEN   10
 
+// runs one CLI command, writing its reply text to resp (CMD_BUF_LEN_MAX bytes)
+typedef void (*KISSCLIHandler)(void* ctx, const char* command, char* resp);
+
 class KISSModem {
+  KISSCLIHandler _cli_handler = nullptr;
+  void* _cli_ctx = nullptr;
+  void handleCLIFrame(const char* data, uint16_t len);
+
   uint16_t _len;
   bool _esc;
   uint32_t _txdelay;
@@ -78,6 +86,7 @@ class KISSModem {
     KISSPort getPort() { return _port; };
     void setPort(KISSPort port) { _port = port; };
     void reset() { _len = 0; _esc = false; };
+    void setCLIHandler(KISSCLIHandler handler, void* ctx) { _cli_handler = handler; _cli_ctx = ctx; }
     void parseSerialKISS();
     void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, uint16_t len);
     // ACKMODE: tell the host what happened to tagged frame <tag> (KISS mode only)

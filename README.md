@@ -64,7 +64,6 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
 
  * `txraw <hex...>` - Transmist a packet
  * `get syncword <word>` - Read the syncword setting
- * `set kiss port <port>` - Set the KISS device port
  * `set radio <freq>,<bw>,<sf>,<coding-rate>,<syncword>` - Configure the radio
  * `serial mode kiss` - Switch to KISS mode
  * `rxlog on` - enable LoRa packet logging
@@ -153,6 +152,10 @@ KISS mode allows for operating the LoRA radio as a KISS modem, which makes it co
 ### Exiting KISS Mode
  * To exit KISS mode and return to CLI mode, you can send a KISS exit sequence like so: `echo -ne '\xC0\xFF\xC0' > /dev/ttyUSBx`
    * For this to work, ensure your serial port's settings and baud rate is set correctly with `stty`
+
+### KISS ports
+
+LoRa frames use KISS port 0 (data `0x00`, plus ACKMODE `0x0C` and RX info `0x0D`), BLE advertisements port 2 (`0x20`), and GPS is reserved as port 4. Port 1 is the CLI: send a command as a data frame (`C0 10 get radio C0`) and the reply comes back as one data frame on port 1 (`C0 10 > 2490.0,1625.0,7,5,0x12 C0`), without leaving KISS mode. `serial mode` and `txraw` aren't available this way.
 
 ### ACKMODE
 

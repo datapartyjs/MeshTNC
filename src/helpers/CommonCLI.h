@@ -32,7 +32,7 @@ struct NodePrefs {  // persisted to file
     uint8_t sync_word;
     bool log_rx;
     // KISS Config
-    uint8_t kiss_port;
+    uint8_t kiss_port;            // unused (the old "set kiss port"); kept so the prefs file layout stays the same
 
     // BLE Settings
     bool ble_enabled;         // false
@@ -94,11 +94,15 @@ class CommonCLI {
   void loadPrefsInt(FILESYSTEM* _fs, const char* filename);
   void parseSerialCLI();
   void handleCLICommand(uint32_t sender_timestamp, const char* command, char* resp);
+  static void kissCLI(void* ctx, const char* command, char* resp) {
+    ((CommonCLI*)ctx)->handleCLICommand(0, command, resp);
+  }
 
 public:
   CommonCLI(mesh::MainBoard& board, mesh::RTCClock& rtc, NodePrefs* prefs, CommonCLICallbacks* callbacks, mesh::Mesh* mesh)
       : _board(&board), _rtc(&rtc), _prefs(prefs), _callbacks(callbacks), _mesh(mesh), _kiss(&_cli_mode, mesh) {
         _cmd[0] = 0;
+        _kiss.setCLIHandler(&CommonCLI::kissCLI, this);   // CLI over KISS port 1
       }
 
   void loadPrefs(FILESYSTEM* _fs);

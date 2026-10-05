@@ -55,6 +55,38 @@ void KISSModem::sendAck(uint16_t tag, bool sent, uint8_t status) {
   Serial.write(frame, n);
 }
 
+// A data frame on the CLI port (C0 10 <command> C0) runs one CLI command without leaving
+// KISS mode; the reply comes back as one data frame on the same port (C0 10 <reply> C0),
+// the text the serial CLI prints after "  -> ". Commands that would write to the serial
+// port directly or leave KISS mode are refused.
+void KISSModem::handleCLIFrame(const char* data, uint16_t len) {
+  static char command[CMD_BUF_LEN_MAX];
+  static char resp[CMD_BUF_LEN_MAX];
+  static uint8_t frame[2 * CMD_BUF_LEN_MAX + 3];
+
+  // copy as a C string, without leading spaces or a trailing line ending
+  while (len > 0 && data[0] == ' ') { data++; len--; }
+  while (len > 0 && (data[len-1] == '\r' || data[len-1] == '\n' || data[len-1] == ' ' || data[len-1] == 0)) len--;
+  if (len >= sizeof(command)) len = sizeof(command) - 1;
+  memcpy(command, data, len);
+  command[len] = 0;
+
+  resp[0] = 0;
+  if (len == 0) {
+    strcpy(resp, "Error, empty command");
+  } else if (_cli_handler == nullptr) {
+    strcpy(resp, "Error, CLI not available over KISS");
+  } else if (memcmp(command, "serial mode", 11) == 0 || memcmp(command, "txraw", 5) == 0) {
+    strcpy(resp, "Error, not available over KISS");
+  } else {
+    _cli_handler(_cli_ctx, command, resp);
+  }
+
+  uint16_t n = encodeKISSFrame(KISSCmd::Data, reinterpret_cast<const uint8_t*>(resp), strlen(resp),
+                               frame, sizeof(frame), KISSPort::CLI_Port);
+  Serial.write(frame, n);
+}
+
 void KISSModem::parseSerialKISS() {
   char* command = _cmd;
   while (Serial.available() && _len < sizeof(_cmd)-1) {
@@ -145,6 +177,12 @@ void KISSModem::handleKISSCommand(
         Serial.println("  -> Exiting KISS mode and returning to CLI mode.");
         return;
     }
+  }
+
+  // CLI over KISS: a data frame on the CLI port is one command line
+  if (kiss_port == KISSPort::CLI_Port) {
+    if (kiss_cmd == KISSCmd::Data) handleCLIFrame(kiss_data, kiss_data_len);
+    return;
   }
 
   // this KISS data is from the host to our KISS port number

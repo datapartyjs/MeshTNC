@@ -459,18 +459,7 @@ void CommonCLI::handleCLICommand(
       strcpy(resp, "OK");
     } else if (memcmp(config, "kiss ", 5) == 0) {
       const char* kiss_config = &config[5];
-      if (memcmp(kiss_config, "port ", 5) == 0) {
-        uint8_t kiss_port = atoi(&kiss_config[5]);
-        if (kiss_port < 16) {
-          _prefs->kiss_port = kiss_port;
-          savePrefs();
-          strcpy(resp, "OK");
-        } else {
-          sprintf(resp,
-                  "KISS port must be between 0 and 15, invalid value: %d",
-                  kiss_port);
-        }
-      } else if (memcmp(kiss_config, "rxinfo ", 7) == 0) {
+      if (memcmp(kiss_config, "rxinfo ", 7) == 0) {
         const char* v = &kiss_config[7];
         if (memcmp(v, "on", 2) == 0 || memcmp(v, "off", 3) == 0) {
           _prefs->kiss_rxinfo = (memcmp(v, "on", 2) == 0);
