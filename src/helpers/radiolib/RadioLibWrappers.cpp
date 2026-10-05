@@ -137,6 +137,7 @@ int RadioLibWrapper::recvRaw(uint8_t* bytes, int sz) {
       //  Serial.print("  readData() -> "); Serial.println(len);
         n_recv++;
         _last_rx_millis = _irq_millis;   // RX-done interrupt time of this packet
+        onPacketRead();
       }
     }
     _state = STATE_IDLE;   // need another startReceive()

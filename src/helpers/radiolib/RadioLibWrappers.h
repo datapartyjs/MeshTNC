@@ -34,6 +34,10 @@ protected:
   virtual int readTxDoneFlag() { return -1; }
   virtual int readInTxMode() { return -1; }
 
+  // called by recvRaw() right after a packet was read, before the radio is put back in
+  // RX: the place to latch per-packet values (RSSI, SNR) that a new RX would reset
+  virtual void onPacketRead() { }
+
 public:
   RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board)
     : _instance_id(-1), _tx_poll_irq(false), _radio(&radio), _board(&board), _state(0), _asleep(false),
