@@ -134,6 +134,10 @@ void KISSModem::handleKISSCommand(
   if (kiss_port == 0xF) {
     switch (kiss_cmd) {
       case KISSCmd::Return:
+        // only the exact return frame (C0 FF C0) leaves KISS mode. A 0xFF followed by
+        // more bytes is a damaged data frame, e.g. an unescaped C0 FF inside a packet
+        // from a host that doesn't escape: ignore it rather than drop out of KISS mode.
+        if (kiss_data_len != 0) return;
         _cmd[0] = 0; // reset command buffer
         _len = 0;
         _esc = false;
