@@ -39,3 +39,12 @@ const char* radio_name(int n);
 bool radio_is_active(int n);
 bool radio_power_off(int n);
 void board_power_off();   // doesn't return
+
+// MCU light sleep (see target.cpp)
+#define BOARD_WAKE_TIMER   0
+#define BOARD_WAKE_LORA    1
+#define BOARD_WAKE_SERIAL  2
+#define BOARD_WAKE_OTHER   3
+bool board_rx_irq_pending();
+bool board_rx_path_ready();
+int board_light_sleep(uint32_t max_ms, bool lora_wake);   // returns BOARD_WAKE_*

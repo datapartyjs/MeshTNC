@@ -7,6 +7,7 @@
 #define STATE_TX_WAIT    3
 #define STATE_TX_DONE    4
 #define STATE_INT_READY 16
+static_assert(STATE_INT_READY == STATE_INT_READY_FLAG, "keep RadioLibWrappers.h in step");
 
 #define NUM_NOISE_FLOOR_SAMPLES  64
 #define SAMPLING_THRESHOLD  14

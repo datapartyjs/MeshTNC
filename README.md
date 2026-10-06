@@ -80,6 +80,9 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
    * `scantime` - Number of milliseconds to scan
  * `set`/`get txpower` - MeshCore's `set`/`get tx` has been renamed appropriately
  * `get temp` - Read the MCU core temperature in °C
+ * `set`/`get powersave on|off` - In KISS mode, light-sleep the MCU whenever it's idle (saved, off by default; BYOMesh). It wakes on LoRa packets and serial input, but the bytes that wake it are lost: hosts must send a few `C0` bytes (empty KISS frames) before a frame after an idle gap
+ * `sleep [<seconds>]` - Light-sleep the MCU whenever it's idle for `<seconds>`, or until `wake` (BYOMesh), still waking for LoRa packets and serial input; the first bytes that wake it are lost
+ * `wake` - End a `sleep`
  * `poweroff` - Turn off all LoRa radios, then power down the MCU (BYOMesh: deep sleep until a reset or power cycle)
  * `poweroff lora [<n>]` - Turn off (sleep) all LoRa radios, or radio `<n>`, numbered by frequency (BYOMesh: 1 = SX1276, 2 = SX1281). Turning off the active radio stops RX/TX until `set radio` or a reboot
  * `set`/`get led on|off` - Enable or disable the status LED (saved)

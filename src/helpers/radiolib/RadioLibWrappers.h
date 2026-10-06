@@ -3,6 +3,8 @@
 #include <Mesh.h>
 #include <RadioLib.h>
 
+#define STATE_INT_READY_FLAG  16   // == STATE_INT_READY in RadioLibWrappers.cpp
+
 class RadioLibWrapper : public mesh::Radio {
   static RadioLibWrapper* _instances[2];
   static int _next_id;
@@ -64,6 +66,8 @@ public:
   int verifySendStatus() override;
   void onSendFinished() override;
   bool isInRecvMode() const override;
+  // what the DIO ISR does, for when the interrupt itself was masked (ESP32 light sleep)
+  void signalInterrupt() { _irq_millis = millis(); _state |= STATE_INT_READY_FLAG; }
   bool isChannelActive();
 
   bool isReceiving() override { 

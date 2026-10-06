@@ -2,6 +2,7 @@
 #include "target.h"
 #include "driver/gpio.h"
 #include "esp_sleep.h"
+#include "driver/uart.h"
 
 ESP32Board board;
 
@@ -334,4 +335,71 @@ void board_power_off() {
   gpio_deep_sleep_hold_en();
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   esp_deep_sleep_start();   // doesn't return
+}
+
+// --- MCU light sleep (powersave / sleep) ----------------------------------------------------
+// Only the ESP32-S3 sleeps: the active radio stays in RX, and the ESP32 is woken by
+//   - LoRa: the active radio's DIO pin (SX1281 DIO1 / SX1276 DIO0) going high on RX done,
+//   - the host link: activity on UART0 RX (the bytes that wake it are lost: hosts must
+//     send a few FEND bytes first; a FEND-only frame is empty and ignored),
+//   - a timer, for housekeeping.
+// GPIOs are held at their levels while it sleeps, so the RF path stays exactly as RX left it:
+// on 2.4 GHz the AT2401C in RX (RXEN high, TXEN low: LNA on, PA off) and U8 on its port.
+static int active_dio_pin() {
+  return active_radio == &radio_driver_2ghz ? P_SX1281_DIO1 : P_SX1276_DIO0;
+}
+
+// the active radio has an interrupt (packet) waiting to be read
+bool board_rx_irq_pending() {
+  return digitalRead(active_dio_pin()) == HIGH;
+}
+
+// the RF path is set up for RX on the active radio (checked before every sleep)
+bool board_rx_path_ready() {
+  if (active_radio == &radio_driver_2ghz) {
+    return rf_sw_on_2g && digitalRead(P_SX1281_RXEN) == HIGH && digitalRead(P_SX1281_TXEN) == LOW;
+  }
+  return !rf_sw_on_2g;
+}
+
+static const int sleep_hold_pins[] = {
+  P_SX1281_TXEN, P_SX1281_RXEN, P_SX1281_RF_SW, P_SX1281_NSS, P_SX1276_NSS,
+#if defined(P_LED_DATA) && defined(P_LED_CLK)
+  P_LED_DATA, P_LED_CLK,
+#endif
+};
+
+int board_light_sleep(uint32_t max_ms, bool lora_wake) {
+  const gpio_num_t dio = (gpio_num_t) active_dio_pin();
+
+  for (int pin : sleep_hold_pins) gpio_hold_en((gpio_num_t) pin);
+
+  if (lora_wake) {
+    // the DIO ISR is edge triggered; light sleep can only wake on a level. Mask the ISR
+    // while the pin is set up for wake-up, or a high level would trigger it endlessly.
+    gpio_intr_disable(dio);
+    gpio_wakeup_enable(dio, GPIO_INTR_HIGH_LEVEL);
+    esp_sleep_enable_gpio_wakeup();
+  }
+  uart_set_wakeup_threshold(UART_NUM_0, 3);   // RX edges needed to wake (the minimum)
+  esp_sleep_enable_uart_wakeup(UART_NUM_0);
+  esp_sleep_enable_timer_wakeup((uint64_t) max_ms * 1000ULL);
+
+  esp_light_sleep_start();
+
+  esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+  if (lora_wake) {
+    gpio_wakeup_disable(dio);
+    gpio_set_intr_type(dio, GPIO_INTR_POSEDGE);   // back to the edge-triggered RadioLib ISR
+    gpio_intr_enable(dio);
+  }
+  for (int pin : sleep_hold_pins) gpio_hold_dis((gpio_num_t) pin);
+
+  switch (cause) {
+    case ESP_SLEEP_WAKEUP_GPIO:  return BOARD_WAKE_LORA;
+    case ESP_SLEEP_WAKEUP_UART:  return BOARD_WAKE_SERIAL;
+    case ESP_SLEEP_WAKEUP_TIMER: return BOARD_WAKE_TIMER;
+    default:                     return BOARD_WAKE_OTHER;
+  }
 }

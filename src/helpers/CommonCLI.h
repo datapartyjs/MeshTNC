@@ -49,6 +49,9 @@ struct NodePrefs {  // persisted to file
 
     // KISS: send received frames as RX info frames (cmd 0x0D) with RSSI, SNR, RX time
     bool kiss_rxinfo;
+
+    // light-sleep the MCU whenever it's idle in KISS mode (boards that support it)
+    bool powersave;
 };
 
 #define LED_MODE_COMMAND  0   // LED shows the color set with 'set ledrgb' (off at boot)
@@ -65,6 +68,13 @@ public:
   virtual void dumpLogFile() = 0;
   virtual void setTxPower(uint8_t power_dbm) = 0;
   virtual void clearStats() = 0;
+
+  // MCU light sleep. sleepFor(): seconds < 0 = until 'wake'. The defaults are for boards
+  // that don't support it.
+  virtual bool supportsSleep() { return false; }
+  virtual void sleepFor(long seconds, char* resp) { strcpy(resp, "Error, not supported on this board"); }
+  virtual void wakeUp(char* resp) { strcpy(resp, "Error, not supported on this board"); }
+  virtual void getSleepInfo(char* resp) { resp[0] = 0; }
 
   // poweroff: which = 0 for all LoRa radios, else 1.. by frequency. The defaults are for
   // boards that don't support it.
@@ -113,6 +123,8 @@ public:
   void loadPrefs(FILESYSTEM* _fs);
   void savePrefs(FILESYSTEM* _fs);
   void handleSerialData();
+  // no partly received CLI line or KISS frame (safe to light-sleep the MCU)
+  bool isIdle() const { return _cmd[0] == 0 && _kiss.isIdle(); }
   CLIMode getCLIMode() { return _cli_mode; };
   KISSModem* getKISSModem() { 
     // this isn't supposed to be here but we're refactoring again for multiple radio support soon and it will change again then

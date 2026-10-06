@@ -86,6 +86,7 @@ class KISSModem {
     KISSPort getPort() { return _port; };
     void setPort(KISSPort port) { _port = port; };
     void reset() { _len = 0; _esc = false; };
+    bool isIdle() const { return _len == 0 && !_esc; }   // not in the middle of a frame
     void setCLIHandler(KISSCLIHandler handler, void* ctx) { _cli_handler = handler; _cli_ctx = ctx; }
     void parseSerialKISS();
     void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, uint16_t len);

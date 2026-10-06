@@ -134,6 +134,12 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   unsigned long _temp_check_at;
   uint16_t _rxinfo_seq;   // KISS RX info frame counter
   bool _radios_off;           // radio gate closed by 'poweroff lora', not by a failure
+  // MCU light sleep: 'set powersave on' (KISS mode, whenever idle) or 'sleep [<seconds>]'
+  bool _sleep_cmd;              // a 'sleep' period is running
+  bool _sleep_forever;          //   ... until 'wake'
+  unsigned long _sleep_until;   //   ... or until then
+  uint32_t _n_sleeps, _n_wake_lora, _n_wake_serial, _n_wake_timer;
+  unsigned long _awake_until;   // stay awake while the host is talking
   unsigned long _poweroff_at; // 'poweroff': when to power down (after the reply is out)
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   unsigned long revert_radio_at;
@@ -270,6 +276,11 @@ public:
     _rxinfo_seq = 0;
     _radios_off = false;
     _poweroff_at = 0;
+    _prefs.powersave = false;
+    _sleep_cmd = _sleep_forever = false;
+    _sleep_until = 0;
+    _n_sleeps = _n_wake_lora = _n_wake_serial = _n_wake_timer = 0;
+    _awake_until = 0;
   }
 
   // Drives the LED from the saved settings; called every loop (cheap: the LED is only
@@ -425,6 +436,109 @@ public:
     if (active) strcat(resp, ", no RX/TX until 'set radio' or reboot");
 #else
     strcpy(resp, "Error, not supported on this board");
+#endif
+  }
+
+#ifndef SLEEP_MAX_MS
+  #define SLEEP_MAX_MS  1000   // longest single light sleep: housekeeping runs at least this often
+#endif
+#ifndef SLEEP_SERIAL_GRACE_MS
+  #define SLEEP_SERIAL_GRACE_MS  200   // stay awake this long after serial input: the rest of a
+#endif                                 // frame or line arrives without waking (and losing) bytes
+
+  void noteSerialActivity() { _awake_until = futureMillis(SLEEP_SERIAL_GRACE_MS); }
+
+  bool supportsSleep() override {
+#ifdef BYOMESH
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  void sleepFor(long seconds, char* resp) override {
+#ifdef BYOMESH
+    _sleep_cmd = true;
+    _sleep_forever = (seconds < 0);
+    _sleep_until = _sleep_forever ? 0 : futureMillis(seconds * 1000UL);
+    if (_sleep_forever) strcpy(resp, "OK - sleeping until 'wake' (woken by LoRa and serial input)");
+    else sprintf(resp, "OK - sleeping for %ld s (woken by LoRa and serial input)", seconds);
+#else
+    strcpy(resp, "Error, not supported on this board");
+#endif
+  }
+
+  void wakeUp(char* resp) override {
+#ifdef BYOMESH
+    bool was = _sleep_cmd;
+    _sleep_cmd = _sleep_forever = false;
+    _sleep_until = 0;
+    strcpy(resp, was ? "OK - awake" : "OK - wasn't sleeping");
+#else
+    strcpy(resp, "Error, not supported on this board");
+#endif
+  }
+
+  void getSleepInfo(char* resp) override {
+    sprintf(resp, "%lu sleeps, woken by LoRa %lu, serial %lu, timer %lu",
+      (unsigned long) _n_sleeps, (unsigned long) _n_wake_lora,
+      (unsigned long) _n_wake_serial, (unsigned long) _n_wake_timer);
+  }
+
+  // Light-sleep the MCU if there's nothing to do (see board_light_sleep() in target.cpp).
+  // powersave: only in KISS mode, so the text CLI (and esp-tap's setup over it) never loses
+  // typed characters. A 'sleep' period applies in either mode.
+  void maybeSleep() {
+#ifdef BYOMESH
+    if (_sleep_cmd && !_sleep_forever && millisHasNowPassed(_sleep_until)) _sleep_cmd = false;
+    bool wanted = _sleep_cmd || (_prefs.powersave && _cli.getCLIMode() == CLIMode::KISS);
+    if (!wanted) return;
+
+    // anything in progress keeps the MCU awake
+    if (Serial.available() || !_cli.isIdle() || !millisHasNowPassed(_awake_until)) return;
+    if (isSending() || _mgr->getOutboundCount(0xFFFFFFFF) > 0) return;
+    if (_poweroff_at || _prefs.ble_enabled) return;
+    if (!millisHasNowPassed(_led_boot_until) || !millisHasNowPassed(_led_crit_until) ||
+        !millisHasNowPassed(_led_rx_until) || !millisHasNowPassed(_led_ble_rx_until)) return;
+
+    bool lora_wake = false;
+    if (_radio_gate == RADIO_GATE_OPEN) {
+      // the radio must be listening, with the RF path set for RX, and nothing waiting
+      if (!getRadio()->isInRecvMode() || !board_rx_path_ready() || board_rx_irq_pending()) return;
+      lora_wake = true;
+    } else if (_radio_gate != RADIO_GATE_CLOSED) {
+      return;   // being reconfigured
+    }
+
+    // how long: until the next housekeeping job
+    uint32_t now = _ms->getMillis();
+    uint32_t max_ms = SLEEP_MAX_MS;
+    auto until = [&](unsigned long t) {
+      if (t == 0) return;
+      long d = (long)(t - now);
+      if (d < 1) d = 1;
+      if ((uint32_t) d < max_ms) max_ms = d;
+    };
+    until(_temp_check_at);
+    until(revert_radio_at);
+    if (_sleep_cmd && !_sleep_forever) until(_sleep_until);
+#ifdef HAS_STATUS_LED
+    // a blinking LED (radio failed / over temperature) still blinks
+    if (_prefs.led_enabled && _prefs.led_mode == LED_MODE_STATUS) {
+      if (_radio_gate == RADIO_GATE_CLOSED && !_radios_off && max_ms > LED_FATAL_BLINK_MS) max_ms = LED_FATAL_BLINK_MS;
+      if (_overtemp && max_ms > LED_OVERTEMP_BLINK_MS) max_ms = LED_OVERTEMP_BLINK_MS;
+    }
+#endif
+
+    Serial.flush();   // the UART stops while the MCU sleeps: send everything first
+    int cause = board_light_sleep(max_ms, lora_wake);
+    _n_sleeps++;
+    if (cause == BOARD_WAKE_LORA) _n_wake_lora++;
+    else if (cause == BOARD_WAKE_SERIAL) { _n_wake_serial++; noteSerialActivity(); }
+    else if (cause == BOARD_WAKE_TIMER) _n_wake_timer++;
+
+    // the DIO ISR was masked while asleep: a packet that arrived is only visible on the pin
+    if (lora_wake && board_rx_irq_pending()) ((RadioLibWrapper*)getRadio())->signalInterrupt();
 #endif
   }
 
@@ -676,6 +790,8 @@ public:
 #ifdef ENABLE_BLE
     printBLEPackets();
 #endif
+
+    maybeSleep();
   }
 };
 
@@ -735,7 +851,9 @@ void setup() {
 }
 
 void loop() {
-  if (Serial.available())
+  if (Serial.available()) {
     the_mesh.handleSerialData();
+    the_mesh.noteSerialActivity();
+  }
   the_mesh.loop();
 }

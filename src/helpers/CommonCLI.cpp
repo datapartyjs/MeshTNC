@@ -64,6 +64,7 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     if (file.read(&v, 1) == 1) _prefs->led_enabled = (v != 0);
     if (file.read(&v, 1) == 1) _prefs->led_mode = (v == LED_MODE_COMMAND) ? LED_MODE_COMMAND : LED_MODE_STATUS;
     if (file.read(&v, 1) == 1) _prefs->kiss_rxinfo = (v != 0);
+    if (file.read(&v, 1) == 1) _prefs->powersave = (v != 0);
 
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
@@ -123,6 +124,8 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write(&_prefs->led_mode, 1);
     uint8_t kiss_rxinfo = _prefs->kiss_rxinfo ? 1 : 0;
     file.write(&kiss_rxinfo, 1);
+    uint8_t powersave = _prefs->powersave ? 1 : 0;
+    file.write(&powersave, 1);
 
     file.close();
   }
@@ -182,6 +185,19 @@ void CommonCLI::handleCLICommand(
 ){
   if (memcmp(command, "reboot", 6) == 0) {
     _board->reboot();  // doesn't return
+  } else if (memcmp(command, "sleep", 5) == 0 && (command[5] == 0 || command[5] == ' ')) {
+    const char* arg = &command[5];
+    while (*arg == ' ') arg++;
+    if (*arg == 0) {
+      _callbacks->sleepFor(-1, resp);
+    } else {
+      char* end;
+      long secs = strtol(arg, &end, 10);
+      if (end == arg || secs <= 0) strcpy(resp, "Error, use: sleep [<seconds>]");
+      else _callbacks->sleepFor(secs, resp);
+    }
+  } else if (memcmp(command, "wake", 4) == 0 && (command[4] == 0 || command[4] == ' ')) {
+    _callbacks->wakeUp(resp);
   } else if (memcmp(command, "poweroff", 8) == 0 && (command[8] == 0 || command[8] == ' ')) {
     const char* arg = &command[8];
     while (*arg == ' ') arg++;
@@ -340,6 +356,14 @@ void CommonCLI::handleCLICommand(
       }
     } else if (memcmp(config, "kiss rxinfo", 11) == 0) {
       sprintf(resp, "> %s", _prefs->kiss_rxinfo ? "on" : "off");
+    } else if (memcmp(config, "powersave", 9) == 0) {
+      if (!_callbacks->supportsSleep()) {
+        strcpy(resp, "Error, not supported on this board");
+      } else {
+        char info[100];
+        _callbacks->getSleepInfo(info);
+        sprintf(resp, "> %s%s%s", _prefs->powersave ? "on" : "off", info[0] ? ", " : "", info);
+      }
     } else if (memcmp(config, "githash", 7) == 0) {
       sprintf(resp, "> %s", BuildInfo::gitHash());
     } else if (memcmp(config, "builddate", 9) == 0) {
@@ -487,6 +511,17 @@ void CommonCLI::handleCLICommand(
         }
       } else {
         sprintf(resp, "unknown kiss config: %s", kiss_config);
+      }
+    } else if (memcmp(config, "powersave ", 10) == 0) {
+      const char* v = &config[10];
+      if (!_callbacks->supportsSleep()) {
+        strcpy(resp, "Error, not supported on this board");
+      } else if (memcmp(v, "on", 2) == 0 || memcmp(v, "off", 3) == 0) {
+        _prefs->powersave = (memcmp(v, "on", 2) == 0);
+        savePrefs();
+        strcpy(resp, "OK");
+      } else {
+        strcpy(resp, "Error, use: set powersave on|off");
       }
     } else if (memcmp(config, "led ", 4) == 0) {
       const char* v = &config[4];
