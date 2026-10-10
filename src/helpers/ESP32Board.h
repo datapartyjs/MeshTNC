@@ -14,6 +14,24 @@ protected:
   uint8_t startup_reason;
 
 public:
+  // on-die sensor via the Arduino core. Accurate on the ESP32-S2/S3/C3; on the original ESP32
+  // the sensor was removed in later silicon and the reading is meaningless.
+  // the factory base MAC in eFuse: programmed once, so it never changes for this chip.
+  // Same order as esptool prints it ("MAC: 24:ec:4a:2b:05:d4" -> "24ec4a2b05d4").
+  bool getUniqueId(char* dest, size_t len) override {
+    if (len < 13) return false;
+    uint64_t mac = ESP.getEfuseMac();   // mac[0] in the least significant byte
+    snprintf(dest, len, "%02x%02x%02x%02x%02x%02x",
+      (unsigned)(mac & 0xff), (unsigned)((mac >> 8) & 0xff), (unsigned)((mac >> 16) & 0xff),
+      (unsigned)((mac >> 24) & 0xff), (unsigned)((mac >> 32) & 0xff), (unsigned)((mac >> 40) & 0xff));
+    return true;
+  }
+
+  bool getMCUTemperature(float& celsius) override {
+    celsius = temperatureRead();
+    return true;
+  }
+
   void begin() {
     // for future use, sub-classes SHOULD call this from their begin()
     startup_reason = BD_STARTUP_NORMAL;

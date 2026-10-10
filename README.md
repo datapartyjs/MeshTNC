@@ -64,7 +64,6 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
 
  * `txraw <hex...>` - Transmist a packet
  * `get syncword <word>` - Read the syncword setting
- * `set kiss port <port>` - Set the KISS device port
  * `set radio <freq>,<bw>,<sf>,<coding-rate>,<syncword>` - Configure the radio
  * `serial mode kiss` - Switch to KISS mode
  * `rxlog on` - enable LoRa packet logging
@@ -80,6 +79,36 @@ Once connected, the MeshTNC device has a simple CLI. The CLI is largely similar 
    * `max_resulrs` - Number maximum results per scan
    * `scantime` - Number of milliseconds to scan
  * `set`/`get txpower` - MeshCore's `set`/`get tx` has been renamed appropriately
+ * `get temp` - Read the MCU core temperature in °C
+ * `set`/`get powersave on|off` - In KISS mode, light-sleep the MCU whenever it's idle (saved, off by default; BYOMesh). It wakes on LoRa packets and serial input, but the bytes that wake it are lost: hosts must send a few `C0` bytes (empty KISS frames) before a frame after an idle gap
+ * `sleep [<seconds>]` - Light-sleep the MCU whenever it's idle for `<seconds>`, or until `wake` (BYOMesh), still waking for LoRa packets and serial input; the first bytes that wake it are lost
+ * `wake` - End a `sleep`
+ * `poweroff` - Turn off all LoRa radios, then power down the MCU (BYOMesh: deep sleep until a reset or power cycle)
+ * `poweroff lora [<n>]` - Turn off (sleep) all LoRa radios, or radio `<n>`, numbered by frequency (BYOMesh: 1 = SX1276, 2 = SX1281). Turning off the active radio stops RX/TX until `set radio` or a reboot
+ * `set`/`get led on|off` - Enable or disable the status LED (saved)
+ * `set`/`get ledmode command|status` - LED mode (saved). `command`: shows the color set with `ledrgb`, off at boot. `status`: shows boot, errors, busy channel, transmit, receive, BLE receive and over temperature
+ * `set`/`get ledrgb <r>,<g>,<b>` - LED color, 0-255 each. Ignored when the LED is disabled or in status mode
+ * `set`/`get kiss rxinfo on|off` - In KISS mode, send received packets as command `0x0D` frames with RSSI, SNR and the receive time in front (saved, off by default). Format: `C0 0D <seq:2> 01 <rssi:2> <snr:1> <rx_ms:4> <frame> C0`, `seq` counting up by one per frame (a gap means a frame was lost on the serial link), RSSI and SNR in signed 0.25 dB steps, `rx_ms` the TNC's milliseconds since boot when the packet was received, multi-byte values big-endian.
+ * `get id` - Fixed unique ID of this board (ESP32 boards: the factory MAC, e.g. `24ec4a2b05d4`); not supported on every board yet
+ * `get githash` - Git hash the firmware was built from (`-dirty` if there were uncommitted changes)
+ * `get builddate` - UTC date and time the firmware was built
+ * `get variant` - Board variant, PlatformIO environment and board the firmware was built for, e.g. `byomesh,BYOMesh_Repeater,esp32-s3-devkitc-1`
+ * `ver` - Now also shows the git hash, variant, environment and board
+ * `ota begin <size> [<signature>]`, `ota data <offset> <hex>`, `ota end [noreboot]`, `ota abort`, `ota status`, `ota rollback` - Firmware update over the serial port, also from KISS mode (ESP32 boards); see [Firmware updates over serial](#firmware-updates-over-serial)
+
+ Status mode LED colors (if several apply, the higher one in the list is shown):
+
+ | Color | Meaning |
+ |---|---|
+ | Red, blinking | Radio disabled: the radio configuration failed |
+ | Orange flash | Error: transmit failed or stuck, receive timeout, busy channel timeout or queue full |
+ | Green | Transmitting |
+ | Cyan flash | LoRa packet received |
+ | White flash | BLE advertisement received |
+ | Purple | Waiting to transmit, channel busy |
+ | Blue | Booting |
+ | Yellow, blinking | Over temperature (ESP32 core at 80 °C or above) |
+ | Off | Idle |
 
  <details>
       <summary> Existing Commands</summary>
@@ -129,6 +158,50 @@ KISS mode allows for operating the LoRA radio as a KISS modem, which makes it co
 ### Exiting KISS Mode
  * To exit KISS mode and return to CLI mode, you can send a KISS exit sequence like so: `echo -ne '\xC0\xFF\xC0' > /dev/ttyUSBx`
    * For this to work, ensure your serial port's settings and baud rate is set correctly with `stty`
+
+### KISS ports
+
+LoRa frames use KISS port 0 (data `0x00`, plus ACKMODE `0x0C` and RX info `0x0D`), BLE advertisements port 2 (`0x20`), and GPS is reserved as port 4. Port 1 is the CLI: send a command as a data frame (`C0 10 get radio C0`) and the reply comes back as one data frame on port 1 (`C0 10 > 2490.0,1625.0,7,5,0x12 C0`), without leaving KISS mode. `serial mode` and `txraw` aren't available this way.
+
+### ACKMODE
+
+Send a data frame as command `0x0C` with a 2-byte id in front of it (`C0 0C <id_hi> <id_lo> <frame> C0`) and MeshTNC replies once the radio has sent it: `C0 0C <id_hi> <id_lo> C0`. If it couldn't be sent, the reply has a status byte after the id: `01` transmit failed, `02` no buffer free, `03` bad frame.
+
+## Firmware updates over serial
+
+ESP32 boards (BYOMesh) can be updated through the serial port with the `ota` commands, from the text CLI or, as data frames on KISS port 1, without leaving KISS mode. The image is written to the inactive OTA app partition with the ESP32 Arduino core's `Update` library (the updater behind ArduinoOTA), which checks the image header, chip type and image checksum before the boot partition is switched. The running firmware is untouched until `ota end` succeeds. Use the plain `firmware.bin` (the `-merged.bin` includes the bootloader and partition table and is for USB flashing only).
+
+The easy way, with [`bin/ota/upload_firmware.py`](bin/ota/upload_firmware.py) (needs `pip install pyserial`), on a TNC that is in KISS mode:
+
+```
+python3 bin/ota/upload_firmware.py --port /dev/ttyS0 --baud 921600 firmware.bin --sig firmware.bin.sig --verify
+```
+
+`--mode cli` talks to the text CLI instead, `--enter-kiss` puts a TNC that is in text mode into KISS mode first. After the reboot the TNC is in text CLI mode again (KISS mode is not saved across reboots).
+
+The commands it sends:
+
+ * `ota begin <size> [<signature hex>]` - Start an update of `<size>` bytes. The reply gives the largest chunk the TNC takes (`up to 236 bytes each`)
+ * `ota data <offset> <hex>` - The next chunk of the image, in order; the reply is `OK <bytes received so far>`. Wait for it before sending the next chunk: the TNC's flash writes pace the transfer, so its serial buffer can't overflow. If a reply is lost, send the same chunk again: it's answered `OK` without being written twice, and `Error, expected offset <n>` tells where to continue
+ * `ota end` - Checks the signature (when required) and the image, makes it the boot image and reboots once the reply has been sent. `ota end noreboot` leaves the TNC running until the next `reboot`
+ * `ota abort` - Drop an update in progress (an update with no data for 60 s is dropped by itself)
+ * `ota status` - Progress, whether a signature is required, the running and the update partition, and the largest image that fits
+ * `ota rollback` - Boot the firmware in the other OTA partition again, if it still holds a valid one
+
+### Signed updates
+
+Firmware can be signed with an Ed25519 key, with [`bin/ota/sign_firmware.py`](bin/ota/sign_firmware.py) (needs `pip install cryptography`). The signature is over the SHA-256 digest of the `.bin`:
+
+```
+python3 bin/ota/sign_firmware.py keygen ota_key.pem          # once; prints the public key
+python3 bin/ota/sign_firmware.py sign ota_key.pem firmware.bin   # writes firmware.bin.sig
+```
+
+The public key is compiled into the firmware with `-D OTA_PUBLIC_KEY='"<64 hex chars>"'` in the variant's `platformio.ini` (see `variants/byomesh/platformio.ini`). A firmware built with the key set only applies images whose signature checks out against it: `ota begin` without a signature is refused, and an image with a bad signature is discarded at `ota end`. With the key empty (the default) any image is applied and signatures are not checked. Keep `ota_key.pem` private: whoever has it can sign firmware the TNC accepts. There is no version check, so a signed older image can be installed again.
+
+### Image size
+
+The BYOMesh board has 4 MB of flash with the `default.csv` partition table: two 1.25 MB (1310720 byte) OTA app partitions and 1.375 MB of SPIFFS for the settings and packet log. An image has to fit one app partition, which `pio run` also enforces at build time, and `ota status` reports (`max image 1310720 bytes`). At 921600 baud an update takes about a minute; at 115200 baud a few minutes.
 
 ## APRS over LoRa
 

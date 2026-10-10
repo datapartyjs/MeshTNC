@@ -19,4 +19,8 @@ public:
     int sf = ((CustomSX1276 *)_radio)->spreadingFactor;
     return packetScoreInt(snr, sf, packet_len);
   }
+
+protected:
+  int readTxDoneFlag() override { return ((CustomSX1276 *)_radio)->isTxDone() ? 1 : 0; }
+  int readInTxMode() override { return ((CustomSX1276 *)_radio)->isTransmitting() ? 1 : 0; }
 };

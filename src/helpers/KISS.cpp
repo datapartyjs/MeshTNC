@@ -47,6 +47,46 @@ uint16_t KISSModem::encodeKISSFrame(
   return kiss_buf_len;
 }
 
+void KISSModem::sendAck(uint16_t tag, bool sent, uint8_t status) {
+  if (*_cli_mode != CLIMode::KISS) return;
+  uint8_t data[3] = { (uint8_t)(tag >> 8), (uint8_t)(tag & 0xFF), status };
+  uint8_t frame[2 + 2*3 + 1];
+  uint16_t n = encodeKISSFrame(KISSCmd::AckData, data, sent ? 2 : 3, frame, sizeof(frame));   // on the KISS port
+  Serial.write(frame, n);
+}
+
+// A data frame on the CLI port (C0 10 <command> C0) runs one CLI command without leaving
+// KISS mode; the reply comes back as one data frame on the same port (C0 10 <reply> C0),
+// the text the serial CLI prints after "  -> ". Commands that would write to the serial
+// port directly or leave KISS mode are refused.
+void KISSModem::handleCLIFrame(const char* data, uint16_t len) {
+  static char command[CMD_BUF_LEN_MAX];
+  static char resp[CMD_BUF_LEN_MAX];
+  static uint8_t frame[2 * CMD_BUF_LEN_MAX + 3];
+
+  // copy as a C string, without leading spaces or a trailing line ending
+  while (len > 0 && data[0] == ' ') { data++; len--; }
+  while (len > 0 && (data[len-1] == '\r' || data[len-1] == '\n' || data[len-1] == ' ' || data[len-1] == 0)) len--;
+  if (len >= sizeof(command)) len = sizeof(command) - 1;
+  memcpy(command, data, len);
+  command[len] = 0;
+
+  resp[0] = 0;
+  if (len == 0) {
+    strcpy(resp, "Error, empty command");
+  } else if (_cli_handler == nullptr) {
+    strcpy(resp, "Error, CLI not available over KISS");
+  } else if (memcmp(command, "serial mode", 11) == 0 || memcmp(command, "txraw", 5) == 0) {
+    strcpy(resp, "Error, not available over KISS");
+  } else {
+    _cli_handler(_cli_ctx, command, resp);
+  }
+
+  uint16_t n = encodeKISSFrame(KISSCmd::Data, reinterpret_cast<const uint8_t*>(resp), strlen(resp),
+                               frame, sizeof(frame), KISSPort::CLI_Port);
+  Serial.write(frame, n);
+}
+
 void KISSModem::parseSerialKISS() {
   char* command = _cmd;
   while (Serial.available() && _len < sizeof(_cmd)-1) {
@@ -63,13 +103,10 @@ void KISSModem::parseSerialKISS() {
         }
         continue;
       case KISSFrame::FEND:
-        // if current command length is greater than 0 and we encounter a FEND,
-        // handle the whole command buffer as a KISS command, send length, and
-        // then reset length to zero to wait for the next KISS command
+        // a FEND always ends the current frame (and any pending escape);
+        // a non-empty frame is handled as a KISS command
+        _esc = false;
         if (_len > 0) {
-          // encountered literal FEND while in escape mode. reset escape mode
-          if (_esc) _esc = false;
-          // handle the command and reset kiss cmdbuf length to 0
           handleKISSCommand(0, command, _len);
           _len = 0;
         }
@@ -93,18 +130,18 @@ void KISSModem::parseSerialKISS() {
       default:
         // add byte to command buffer and increment _len,
         // if it is not handled above.
-        // eat and discard any unknown escaped bytes
-        if (!_esc) _cmd[_len++] = b;
+        // eat and discard any unknown escaped byte, and leave escape mode
+        if (_esc) _esc = false;
+        else _cmd[_len++] = b;
         break;
     }
   }
 
-  // check if command buffer is full after reading and processing last byte
-  if (_len == sizeof(_cmd)-1) {
-    // just send the truncated transmission for now
-    // TODO: handle error condition?
-    handleKISSCommand(0, command, _len);
+  // command buffer full without a closing FEND: the frame is far larger than
+  // anything the radio can send - drop it instead of transmitting a truncated one
+  if (_len >= sizeof(_cmd)-1) {
     _len = 0;
+    _esc = false;
   }
 }
 
@@ -129,27 +166,66 @@ void KISSModem::handleKISSCommand(
   if (kiss_port == 0xF) {
     switch (kiss_cmd) {
       case KISSCmd::Return:
+        // only the exact return frame (C0 FF C0) leaves KISS mode. A 0xFF followed by
+        // more bytes is a damaged data frame, e.g. an unescaped C0 FF inside a packet
+        // from a host that doesn't escape: ignore it rather than drop out of KISS mode.
+        if (kiss_data_len != 0) return;
         _cmd[0] = 0; // reset command buffer
+        _len = 0;
+        _esc = false;
         *_cli_mode = CLIMode::CLI; // return to CLI mode
         Serial.println("  -> Exiting KISS mode and returning to CLI mode.");
         return;
     }
   }
 
+  // CLI over KISS: a data frame on the CLI port is one command line
+  if (kiss_port == KISSPort::CLI_Port) {
+    if (kiss_cmd == KISSCmd::Data) handleCLIFrame(kiss_data, kiss_data_len);
+    return;
+  }
+
   // this KISS data is from the host to our KISS port number
   if (kiss_port == _port) {
     switch (kiss_cmd) {
       case KISSCmd::TxDelay:
-        // TX delay is specified in 10ms units
-        if (kiss_data_len > 0) _txdelay = atoi(&kiss_data[0]) * 10;
+        // TX delay is ONE BINARY BYTE in 10ms units (not ASCII text)
+        if (kiss_data_len > 0) _txdelay = static_cast<uint8_t>(kiss_data[0]) * 10;
         break;
-      case KISSCmd::Data:
-        if (kiss_data_len == 0) break;
+      case KISSCmd::Data: {
+        // nothing to send, or more than one LoRa frame can carry: drop
+        if (kiss_data_len == 0 || kiss_data_len > MAX_TRANS_UNIT) break;
         const uint8_t* tx_buf = reinterpret_cast<const uint8_t*>(kiss_data);
+        // NULL when all packets are queued (host sending faster than the radio
+        // can transmit): drop this frame instead of writing through NULL
         mesh::Packet* pkt = _mesh->obtainNewPacket();
-        pkt->readFrom(tx_buf, kiss_data_len);
-        _mesh->sendPacket(pkt, 1, _txdelay);
+        if (pkt == NULL) break;
+        if (!pkt->readFrom(tx_buf, static_cast<uint8_t>(kiss_data_len))) {
+          _mesh->releasePacket(pkt);   // back to the pool, don't leak it
+          break;
+        }
+        _mesh->sendPacket(pkt, 1/*, _txdelay*/);
         break;
+      }
+      case KISSCmd::AckData: {
+        // ACKMODE: <id_hi> <id_lo> <frame...>. The host gets one ack per id: when the radio
+        // has finished sending it (MyMesh::logTx), or as soon as it's known to have failed.
+        if (kiss_data_len < 2) break;   // no id: nothing we could ack
+        const uint16_t tag = (static_cast<uint8_t>(kiss_data[0]) << 8) | static_cast<uint8_t>(kiss_data[1]);
+        const uint16_t frame_len = kiss_data_len - 2;
+        if (frame_len == 0 || frame_len > MAX_TRANS_UNIT) { sendAck(tag, false, KISS_ACK_BAD_FRAME); break; }
+        mesh::Packet* pkt = _mesh->obtainNewPacket();
+        if (pkt == NULL) { sendAck(tag, false, KISS_ACK_NO_BUFFER); break; }
+        if (!pkt->readFrom(reinterpret_cast<const uint8_t*>(kiss_data + 2), static_cast<uint8_t>(frame_len))) {
+          _mesh->releasePacket(pkt);
+          sendAck(tag, false, KISS_ACK_BAD_FRAME);
+          break;
+        }
+        pkt->tx_tagged = true;
+        pkt->tx_tag = tag;
+        _mesh->sendPacket(pkt, 1);   // failures from here on are acked via logTxFail()
+        break;
+      }
     }
   }
 }

@@ -17,10 +17,54 @@
 #include <RTClib.h>
 #include <target.h>
 
+// --- status LED: one APA102 on P_LED_DATA (data) + P_LED_CLK (clock) ----------------------
+#if defined(P_LED_DATA) && defined(P_LED_CLK)
+  #define HAS_STATUS_LED 1
+  #include <helpers/APA102Led.h>
+  #ifndef LED_GLOBAL_BRIGHTNESS
+    #define LED_GLOBAL_BRIGHTNESS  31     // APA102 global brightness, 0..31
+  #endif
+  static APA102Led status_led(P_LED_DATA, P_LED_CLK, LED_GLOBAL_BRIGHTNESS);
+#elif defined(P_LED_DATA)
+  #warning "P_LED_DATA is set but P_LED_CLK is not: an APA102 needs a clock pin too. Building without LED support."
+#endif
+
+// status mode colors (r, g, b) and timings
+#define LED_COLOR_BOOT       0,   0,  64   // blue:   booting, and for LED_BOOT_SHOW_MS after
+#define LED_COLOR_FATAL     64,   0,   0   // red:    blinking while the radio is disabled
+#define LED_COLOR_CRITICAL  64,  24,   0   // orange: flash on a new TX/RX/queue error
+#define LED_COLOR_CAD_BUSY  32,   0,  48   // purple: a packet is waiting for a busy channel
+#define LED_COLOR_TX         0,  64,   0   // green:  transmitting, off when the send completes
+#define LED_COLOR_RX         0,  32,  48   // cyan:   flash on each received packet
+#define LED_COLOR_BLE_RX    24,  24,  24   // white:  flash on each received BLE advertisement
+#define LED_COLOR_OVERTEMP  48,  40,   0   // yellow: slow blink while over temperature
+#define LED_BOOT_SHOW_MS       1000
+#define LED_CRITICAL_SHOW_MS    300
+#define LED_RX_SHOW_MS           50
+#define LED_BLE_RX_SHOW_MS       50
+#define LED_OVERTEMP_BLINK_MS   500
+
+// Over-temperature, from the ESP32-S3's on-die sensor read every TEMP_CHECK_MS. The ESP32-S3,
+// SX128x and SX1276 are all rated for -40..+85 C, and the die reads hotter than the board
+// around it, so 80 C on the die leaves margin for all three. Clears TEMP_HYST_C below that.
+#ifndef TEMP_CHECK_MS
+  #define TEMP_CHECK_MS           5000
+#endif
+#ifndef OVERTEMP_C
+  #define OVERTEMP_C              80.0f
+#endif
+#ifndef OVERTEMP_HYST_C
+  #define OVERTEMP_HYST_C          5.0f
+#endif
+#define LED_FATAL_BLINK_MS      250
+#define LED_CRITICAL_ERR_MASK  (ERR_EVENT_FULL | ERR_EVENT_CAD_TIMEOUT | ERR_EVENT_STARTRX_TIMEOUT | \
+                                ERR_EVENT_TX_FAIL | ERR_EVENT_TX_STUCK)
+
 /* ------------------------------ Config -------------------------------- */
 
+#include <helpers/BuildInfo.h>
 #ifndef FIRMWARE_BUILD_DATE
-  #define FIRMWARE_BUILD_DATE   "1 Aug 2025"
+  #define FIRMWARE_BUILD_DATE   BuildInfo::date()   // UTC build time from build_info.py
 #endif
 
 #ifndef FIRMWARE_VERSION
@@ -79,13 +123,27 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   CommonCLI _cli;
   bool _logging;
   NodePrefs _prefs;
+
+  // status LED state
+  uint8_t _led_r, _led_g, _led_b;    // command mode color (not saved: off at boot)
+  uint8_t _led_last_mode;
+  uint16_t _led_seen_flags;          // Dispatcher error flags already flashed for
+  bool _led_booting;
+  unsigned long _led_boot_until, _led_crit_until, _led_rx_until, _led_ble_rx_until;
+  bool _overtemp;
+  unsigned long _temp_check_at;
+  uint16_t _rxinfo_seq;   // KISS RX info frame counter
+  bool _radios_off;           // radio gate closed by 'poweroff lora', not by a failure
+  // MCU light sleep: 'set powersave on' (KISS mode, whenever idle) or 'sleep [<seconds>]'
+  bool _sleep_cmd;              // a 'sleep' period is running
+  bool _sleep_forever;          //   ... until 'wake'
+  unsigned long _sleep_until;   //   ... or until then
+  uint32_t _n_sleeps, _n_wake_lora, _n_wake_serial, _n_wake_timer;
+  unsigned long _awake_until;   // stay awake while the host is talking
+  unsigned long _poweroff_at; // 'poweroff': when to power down (after the reply is out)
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
-  unsigned long set_radio_at, revert_radio_at;
-  float pending_freq;
-  float pending_bw;
-  uint8_t pending_sf;
-  uint8_t pending_cr;
-  uint8_t pending_sync_word;
+  unsigned long revert_radio_at;
+  int _radio_gate;   // RADIO_GATE_*: HOLD until the first config is applied
 
 #ifdef ENABLE_BLE
   NimBLEScan* bleScan;
@@ -98,7 +156,20 @@ protected:
     return _prefs.airtime_factor;
   }
 
+  int getRadioGate() const override {
+    return _radio_gate;
+  }
+
+  // KISS ACKMODE: report sent / failed for frames the host tagged
+  void logTx(mesh::Packet* pkt, int len) override {
+    if (pkt->tx_tagged) getCLI()->getKISSModem()->sendAck(pkt->tx_tag, true);
+  }
+  void logTxFail(mesh::Packet* pkt, int len) override {
+    if (pkt->tx_tagged) getCLI()->getKISSModem()->sendAck(pkt->tx_tag, false, KISS_ACK_TX_FAILED);
+  }
+
   void logRxRaw(float snr, float rssi, const uint8_t raw[], int len) override {
+    _led_rx_until = futureMillis(LED_RX_SHOW_MS);   // status LED: received a packet
     CLIMode cli_mode = _cli.getCLIMode();
     if (cli_mode == CLIMode::CLI) {
       if (!_prefs.log_rx) return;
@@ -109,11 +180,39 @@ protected:
       mesh::Utils::printHex(Serial, raw, len);
       Serial.println();
     } else if (cli_mode == CLIMode::KISS) {
-      uint8_t kiss_rx[CMD_BUF_LEN_MAX];
+      // worst case every byte escaped: 2x the data, plus FEND, command byte, FEND
+      uint8_t kiss_rx[2 * (KISS_RXINFO_HDR_LEN + MAX_TRANS_UNIT) + 3];
       KISSModem* kiss = getCLI()->getKISSModem();
-      uint16_t kiss_rx_len = kiss->encodeKISSFrame(
-        KISSCmd::Data, raw, len, kiss_rx, sizeof(kiss_rx)
-      );
+      uint16_t kiss_rx_len;
+      if (_prefs.kiss_rxinfo) {
+        // RX info frame (see KISS.h): seq, ver, RSSI, SNR, RX time, then the frame unchanged
+        uint8_t info[KISS_RXINFO_HDR_LEN + MAX_TRANS_UNIT];
+        if (len > MAX_TRANS_UNIT) len = MAX_TRANS_UNIT;
+        float r4 = rssi * 4.0f, s4 = snr * 4.0f;
+        int16_t rssi_q = (int16_t) constrain(lroundf(r4), -32768L, 32767L);
+        int8_t snr_q = (int8_t) constrain(lroundf(s4), -128L, 127L);
+        uint32_t rx_ms = getRadio()->getLastRecvMillis();
+        if (rx_ms == 0) rx_ms = millis();   // radio doesn't record it: time handed over instead
+        uint16_t seq = _rxinfo_seq++;
+        info[0] = (uint8_t)(seq >> 8);
+        info[1] = (uint8_t)(seq & 0xFF);
+        info[2] = KISS_RXINFO_VER;
+        info[3] = (uint8_t)((uint16_t) rssi_q >> 8);
+        info[4] = (uint8_t)((uint16_t) rssi_q & 0xFF);
+        info[5] = (uint8_t) snr_q;
+        info[6] = (uint8_t)(rx_ms >> 24);
+        info[7] = (uint8_t)(rx_ms >> 16);
+        info[8] = (uint8_t)(rx_ms >> 8);
+        info[9] = (uint8_t)(rx_ms);
+        memcpy(&info[KISS_RXINFO_HDR_LEN], raw, len);
+        kiss_rx_len = kiss->encodeKISSFrame(
+          KISSCmd::RxInfoData, info, KISS_RXINFO_HDR_LEN + len, kiss_rx, sizeof(kiss_rx)
+        );
+      } else {
+        kiss_rx_len = kiss->encodeKISSFrame(
+          KISSCmd::Data, raw, len, kiss_rx, sizeof(kiss_rx)
+        );
+      }
       Serial.write(kiss_rx, kiss_rx_len);
     }
   }
@@ -135,7 +234,8 @@ public:
   MyMesh(mesh::MainBoard& board, mesh::Radio& radio, mesh::MillisecondClock& ms, mesh::RNG& rng, mesh::RTCClock& rtc)
      : mesh::Mesh(radio, ms, *new StaticPoolPacketManager(32)), _cli(board, rtc, &_prefs, this, this)
   {
-    set_radio_at = revert_radio_at = 0;
+    revert_radio_at = 0;
+    _radio_gate = RADIO_GATE_HOLD;   // no RX/TX until begin() has applied a radio config
     _logging = false;
 
 #ifdef ENABLE_BLE
@@ -162,6 +262,311 @@ public:
     _prefs.ble_active_scan = false;
     _prefs.ble_max_results = 100;
     _prefs.ble_scantime = 10 * 1000;
+    _prefs.led_enabled = true;
+    _prefs.led_mode = LED_MODE_STATUS;
+    _prefs.kiss_rxinfo = false;
+
+    _led_r = _led_g = _led_b = 0;
+    _led_last_mode = LED_MODE_STATUS;
+    _led_seen_flags = 0;
+    _led_booting = false;
+    _led_boot_until = _led_crit_until = _led_rx_until = _led_ble_rx_until = 0;
+    _overtemp = false;
+    _temp_check_at = 0;
+    _rxinfo_seq = 0;
+    _radios_off = false;
+    _poweroff_at = 0;
+    _prefs.powersave = false;
+    _sleep_cmd = _sleep_forever = false;
+    _sleep_until = 0;
+    _n_sleeps = _n_wake_lora = _n_wake_serial = _n_wake_timer = 0;
+    _awake_until = 0;
+  }
+
+  // Drives the LED from the saved settings; called every loop (cheap: the LED is only
+  // written when its color changes). In status mode, highest priority first:
+  //   radio disabled (fatal) > new error (critical) > TX > RX > BLE RX > busy channel > boot
+  //   > over temperature > off
+  void updateStatusLed() {
+#ifdef HAS_STATUS_LED
+    uint16_t new_flags = _err_flags & ~_led_seen_flags;   // track even when the LED is off,
+    _led_seen_flags = _err_flags;                         // so enabling it doesn't flash old errors
+    if (new_flags & LED_CRITICAL_ERR_MASK) _led_crit_until = futureMillis(LED_CRITICAL_SHOW_MS);
+
+    if (_prefs.led_mode != _led_last_mode) {   // entering command mode starts dark
+      if (_prefs.led_mode == LED_MODE_COMMAND) _led_r = _led_g = _led_b = 0;
+      _led_last_mode = _prefs.led_mode;
+    }
+
+    if (!_prefs.led_enabled) {
+      status_led.off();
+    } else if (_prefs.led_mode == LED_MODE_COMMAND) {
+      status_led.set(_led_r, _led_g, _led_b);
+    } else if (_radio_gate == RADIO_GATE_CLOSED && _radios_off) {
+      status_led.off();   // radios powered off on purpose: not an error
+    } else if (_radio_gate == RADIO_GATE_CLOSED) {
+      if ((_ms->getMillis() / LED_FATAL_BLINK_MS) & 1) status_led.set(LED_COLOR_FATAL); else status_led.off();
+    } else if (!millisHasNowPassed(_led_crit_until)) {
+      status_led.set(LED_COLOR_CRITICAL);
+    } else if (isSending()) {
+      status_led.set(LED_COLOR_TX);
+    } else if (!millisHasNowPassed(_led_rx_until)) {
+      status_led.set(LED_COLOR_RX);
+    } else if (!millisHasNowPassed(_led_ble_rx_until)) {
+      status_led.set(LED_COLOR_BLE_RX);
+    } else if (isChannelBusy()) {
+      status_led.set(LED_COLOR_CAD_BUSY);
+    } else if (_led_booting || !millisHasNowPassed(_led_boot_until)) {
+      status_led.set(LED_COLOR_BOOT);
+    } else if (_overtemp) {
+      if ((_ms->getMillis() / LED_OVERTEMP_BLINK_MS) & 1) status_led.set(LED_COLOR_OVERTEMP); else status_led.off();
+    } else {
+      status_led.off();
+    }
+#endif
+  }
+
+  // every TEMP_CHECK_MS: read the ESP32 core temperature, with hysteresis on the alarm
+  void checkTemperature() {
+#ifdef HAS_STATUS_LED
+    if (!millisHasNowPassed(_temp_check_at)) return;
+    _temp_check_at = futureMillis(TEMP_CHECK_MS);
+
+    float celsius;
+    if (!board.getMCUTemperature(celsius)) return;
+    if (!_overtemp && celsius >= OVERTEMP_C) {
+      _overtemp = true;
+      MESH_DEBUG_PRINTLN("over temperature: %s C", StrHelper::ftoa(celsius));
+    } else if (_overtemp && celsius <= OVERTEMP_C - OVERTEMP_HYST_C) {
+      _overtemp = false;
+      MESH_DEBUG_PRINTLN("temperature back to normal: %s C", StrHelper::ftoa(celsius));
+    }
+#endif
+  }
+
+#ifdef HAS_STATUS_LED
+  bool hasLed() override { return true; }
+  void applyLedSettings() override { updateStatusLed(); }
+  void setLedColor(uint8_t r, uint8_t g, uint8_t b) override {
+    _led_r = r; _led_g = g; _led_b = b;
+    updateStatusLed();
+  }
+  void getLedColor(uint8_t& r, uint8_t& g, uint8_t& b) override { r = _led_r; g = _led_g; b = _led_b; }
+#endif
+
+#ifndef RADIO_RECONFIG_WAIT_MS
+  #define RADIO_RECONFIG_WAIT_MS  5000   // max wait for an in-flight TX before reconfiguring
+#endif
+
+  // The only place radio parameters are changed. Nothing may ever transmit on a config
+  // other than the one requested, so:
+  //  1. the Dispatcher gate is held: no new TX or RX starts from here on
+  //  2. any TX already on the air finishes (it was sent on the previous, valid config)
+  //  3. the config is applied; BYOMesh checks every step (see radio_apply_params())
+  //  4. success: the Dispatcher is bound to the configured radio and the gate opens
+  //     failure: both radios sleep, the TX queue is flushed and the gate stays CLOSED
+  //     until a later config succeeds
+  bool applyRadioConfig(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) {
+    _radio_gate = RADIO_GATE_HOLD;
+
+    unsigned long until = futureMillis(RADIO_RECONFIG_WAIT_MS);
+    while (isSending() && !millisHasNowPassed(until)) {
+      mesh::Dispatcher::loop();   // completes the TX; the gate stops anything new starting
+    }
+
+    bool ok = !isSending();
+    if (!ok) {
+      MESH_DEBUG_PRINTLN("applyRadioConfig: TX still in progress, refusing to reconfigure");
+    }
+#ifdef BYOMESH
+    if (ok) ok = radio_apply_params(freq, bw, sf, cr, sync_word);
+    if (ok) {
+      if (getRadio() != active_radio) {
+        setRadio(active_radio);
+        MESH_DEBUG_PRINTLN("Dispatcher bound to %s radio", active_radio == &radio_driver_2ghz ? "SX1281" : "SX1276");
+      }
+      active_radio->begin();   // (re)attach its DIO1 IRQ handler and reset its state
+      radio_apply_tx_power(_prefs.tx_power_dbm);   // per radio; a rejected value is not fatal
+    }
+#else
+    if (ok) {
+      radio_set_params(freq, bw, sf, cr, sync_word);
+      radio_set_tx_power(_prefs.tx_power_dbm);
+    }
+#endif
+
+    if (!ok) {
+      _radios_off = false;   // a failure, not a power-off
+      disableRadio();
+      return false;
+    }
+    _radios_off = false;
+    _radio_gate = RADIO_GATE_OPEN;
+    return true;
+  }
+
+  // 'poweroff lora [n]'. Powering off the active radio closes the radio gate the same way a
+  // failed config does (no RX or TX, queued frames failed), until 'set radio' / 'tempradio'
+  // applies a config again or the board reboots.
+  void powerOffRadios(int which, char* resp) override {
+#ifdef BYOMESH
+    if (which < 0 || which > radio_count()) {
+      sprintf(resp, "Error, no LoRa radio %d (1..%d)", which, radio_count());
+      return;
+    }
+    bool active = (which == 0);
+    for (int n = 1; n <= radio_count() && !active; n++) active = (n == which) && radio_is_active(n);
+
+    if (active) {   // let a transmit already on the air finish, start nothing new
+      _radio_gate = RADIO_GATE_HOLD;
+      unsigned long until = futureMillis(RADIO_RECONFIG_WAIT_MS);
+      while (isSending() && !millisHasNowPassed(until)) mesh::Dispatcher::loop();
+      _radio_gate = RADIO_GATE_CLOSED;
+      _radios_off = true;
+      flushOutbound();
+    }
+
+    bool ok = true;
+    for (int n = 1; n <= radio_count(); n++) {
+      if (which == 0 || which == n) ok = radio_power_off(n) && ok;
+    }
+
+    if (which == 0) strcpy(resp, ok ? "OK - LoRa radios off" : "OK - LoRa radios off (a radio didn't confirm sleep)");
+    else sprintf(resp, "OK - LoRa radio %d (%s) off%s", which, radio_name(which), ok ? "" : " (didn't confirm sleep)");
+    if (active) strcat(resp, ", no RX/TX until 'set radio' or reboot");
+#else
+    strcpy(resp, "Error, not supported on this board");
+#endif
+  }
+
+#ifndef SLEEP_MAX_MS
+  #define SLEEP_MAX_MS  1000   // longest single light sleep: housekeeping runs at least this often
+#endif
+#ifndef SLEEP_SERIAL_GRACE_MS
+  #define SLEEP_SERIAL_GRACE_MS  200   // stay awake this long after serial input: the rest of a
+#endif                                 // frame or line arrives without waking (and losing) bytes
+
+  void noteSerialActivity() { _awake_until = futureMillis(SLEEP_SERIAL_GRACE_MS); }
+
+  bool supportsSleep() override {
+#ifdef BYOMESH
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  void sleepFor(long seconds, char* resp) override {
+#ifdef BYOMESH
+    _sleep_cmd = true;
+    _sleep_forever = (seconds < 0);
+    _sleep_until = _sleep_forever ? 0 : futureMillis(seconds * 1000UL);
+    if (_sleep_forever) strcpy(resp, "OK - sleeping until 'wake' (woken by LoRa and serial input)");
+    else sprintf(resp, "OK - sleeping for %ld s (woken by LoRa and serial input)", seconds);
+#else
+    strcpy(resp, "Error, not supported on this board");
+#endif
+  }
+
+  void wakeUp(char* resp) override {
+#ifdef BYOMESH
+    bool was = _sleep_cmd;
+    _sleep_cmd = _sleep_forever = false;
+    _sleep_until = 0;
+    strcpy(resp, was ? "OK - awake" : "OK - wasn't sleeping");
+#else
+    strcpy(resp, "Error, not supported on this board");
+#endif
+  }
+
+  void getSleepInfo(char* resp) override {
+    sprintf(resp, "%lu sleeps, woken by LoRa %lu, serial %lu, timer %lu",
+      (unsigned long) _n_sleeps, (unsigned long) _n_wake_lora,
+      (unsigned long) _n_wake_serial, (unsigned long) _n_wake_timer);
+  }
+
+  // Light-sleep the MCU if there's nothing to do (see board_light_sleep() in target.cpp).
+  // powersave: only in KISS mode, so the text CLI (and esp-tap's setup over it) never loses
+  // typed characters. A 'sleep' period applies in either mode.
+  void maybeSleep() {
+#ifdef BYOMESH
+    if (_sleep_cmd && !_sleep_forever && millisHasNowPassed(_sleep_until)) _sleep_cmd = false;
+    bool wanted = _sleep_cmd || (_prefs.powersave && _cli.getCLIMode() == CLIMode::KISS);
+    if (!wanted) return;
+
+    // anything in progress keeps the MCU awake (a firmware upload: the UART wake loses bytes)
+    if (Serial.available() || !_cli.isIdle() || _cli.isUpdating() || !millisHasNowPassed(_awake_until)) return;
+    if (isSending() || _mgr->getOutboundCount(0xFFFFFFFF) > 0) return;
+    if (_poweroff_at || _prefs.ble_enabled) return;
+    if (!millisHasNowPassed(_led_boot_until) || !millisHasNowPassed(_led_crit_until) ||
+        !millisHasNowPassed(_led_rx_until) || !millisHasNowPassed(_led_ble_rx_until)) return;
+
+    bool lora_wake = false;
+    if (_radio_gate == RADIO_GATE_OPEN) {
+      // the radio must be listening, with the RF path set for RX, and nothing waiting
+      if (!getRadio()->isInRecvMode() || !board_rx_path_ready() || board_rx_irq_pending()) return;
+      lora_wake = true;
+    } else if (_radio_gate != RADIO_GATE_CLOSED) {
+      return;   // being reconfigured
+    }
+
+    // how long: until the next housekeeping job
+    uint32_t now = _ms->getMillis();
+    uint32_t max_ms = SLEEP_MAX_MS;
+    auto until = [&](unsigned long t) {
+      if (t == 0) return;
+      long d = (long)(t - now);
+      if (d < 1) d = 1;
+      if ((uint32_t) d < max_ms) max_ms = d;
+    };
+    until(_temp_check_at);
+    until(revert_radio_at);
+    if (_sleep_cmd && !_sleep_forever) until(_sleep_until);
+#ifdef HAS_STATUS_LED
+    // a blinking LED (radio failed / over temperature) still blinks
+    if (_prefs.led_enabled && _prefs.led_mode == LED_MODE_STATUS) {
+      if (_radio_gate == RADIO_GATE_CLOSED && !_radios_off && max_ms > LED_FATAL_BLINK_MS) max_ms = LED_FATAL_BLINK_MS;
+      if (_overtemp && max_ms > LED_OVERTEMP_BLINK_MS) max_ms = LED_OVERTEMP_BLINK_MS;
+    }
+#endif
+
+    Serial.flush();   // the UART stops while the MCU sleeps: send everything first
+    int cause = board_light_sleep(max_ms, lora_wake);
+    _n_sleeps++;
+    if (cause == BOARD_WAKE_LORA) _n_wake_lora++;
+    else if (cause == BOARD_WAKE_SERIAL) { _n_wake_serial++; noteSerialActivity(); }
+    else if (cause == BOARD_WAKE_TIMER) _n_wake_timer++;
+
+    // the DIO ISR was masked while asleep: a packet that arrived is only visible on the pin
+    if (lora_wake && board_rx_irq_pending()) ((RadioLibWrapper*)getRadio())->signalInterrupt();
+#endif
+  }
+
+  // 'poweroff': the reply goes out first (serial CLI or KISS port 1), loop() does the rest
+  void powerOffBoard(char* resp) override {
+#ifdef BYOMESH
+    _poweroff_at = futureMillis(200);
+    strcpy(resp, "OK - powering off, wake with a reset or power cycle");
+#else
+    strcpy(resp, "Error, not supported on this board");
+#endif
+  }
+
+  void disableRadio() {
+    _radio_gate = RADIO_GATE_CLOSED;
+    flushOutbound();
+#ifdef BYOMESH
+    radio_disable_all();
+#endif
+  }
+
+  // for config changes not started by a CLI command (boot, temp-params revert),
+  // so the failure isn't silent. Only in CLI mode: in KISS mode it would corrupt the stream.
+  void reportRadioFailure(const char* when) {
+    if (_cli.getCLIMode() == CLIMode::CLI) {
+      Serial.print("ERROR: radio config failed ("); Serial.print(when);
+      Serial.println(") - radio disabled (no RX/TX) until 'set radio' or 'tempradio' succeeds");
+    }
   }
 
   void begin(FILESYSTEM* fs) {
@@ -169,8 +574,17 @@ public:
     _fs = fs;
     _cli.loadPrefs(_fs);
 
-    radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
-    radio_set_tx_power(_prefs.tx_power_dbm);
+    _led_last_mode = _prefs.led_mode;   // command mode: off at boot (color isn't saved)
+    _led_booting = true;
+    updateStatusLed();
+
+    if (!applyRadioConfig(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word)) {
+      reportRadioFailure("boot");
+    }
+
+    _led_booting = false;
+    _led_boot_until = futureMillis(LED_BOOT_SHOW_MS);
+    updateStatusLed();
 
 #ifdef ENABLE_BLE
     NimBLEDevice::init(std::__cxx11::string(BLE_DEVICE_NAME));
@@ -216,19 +630,20 @@ public:
   }
 
 
-  void applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word, int timeout_mins) {
-    set_radio_at = futureMillis(2000);   // give CLI reply some time to be sent back, before applying temp radio params
-    pending_freq = freq;
-    pending_bw = bw;
-    pending_sf = sf;
-    pending_cr = cr;
-    pending_sync_word = sync_word;
-
-    revert_radio_at = futureMillis(2000 + timeout_mins*60*1000);   // schedule when to revert radio params
+  // Applied immediately (MeshTNC's CLI is serial-only, so there's no remote reply to wait
+  // for), which lets the CLI report the real result instead of a premature "OK".
+  bool applyTempRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word, int timeout_mins) {
+    if (!applyRadioConfig(freq, bw, sf, cr, sync_word)) {
+      revert_radio_at = 0;
+      return false;
+    }
+    revert_radio_at = futureMillis(timeout_mins*60*1000);   // schedule when to revert radio params
+    return true;
   }
 
-  void applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) {
-    radio_set_params(freq, bw, sf, cr, sync_word);
+  bool applyRadioParams(float freq, float bw, uint8_t sf, uint8_t cr, uint8_t sync_word) {
+    revert_radio_at = 0;   // a permanent config replaces any pending temp-params revert
+    return applyRadioConfig(freq, bw, sf, cr, sync_word);
   }
 
 
@@ -297,6 +712,11 @@ public:
         }
 
         blePacketRxCount++;
+        _led_ble_rx_until = futureMillis(LED_BLE_RX_SHOW_MS);   // status LED: BLE advertisement
+        // a full scan dump is hundreds of ms of blocking serial writes:
+        // keep servicing the LoRa radio (and the status LED) between results
+        mesh::Dispatcher::loop();
+        updateStatusLed();
       }
 
       bleReported = false;
@@ -329,6 +749,7 @@ public:
 
 
   void setTxPower(uint8_t power_dbm) {
+    if (_radio_gate == RADIO_GATE_CLOSED) return;   // radios asleep; applied with the next config
     radio_set_tx_power(power_dbm);
   }
 
@@ -342,23 +763,36 @@ public:
   }
 
   void loop() {
-    mesh::Dispatcher::loop();
-
-    if (set_radio_at && millisHasNowPassed(set_radio_at)) {   // apply pending (temporary) radio params
-      set_radio_at = 0;  // clear timer
-      radio_set_params(pending_freq, pending_bw, pending_sf, pending_cr, pending_sync_word);
-      MESH_DEBUG_PRINTLN("Temp radio params");
+#ifdef BYOMESH
+    if (_poweroff_at && millisHasNowPassed(_poweroff_at)) {
+      _radio_gate = RADIO_GATE_CLOSED;
+      flushOutbound();
+  #ifdef HAS_STATUS_LED
+      status_led.off();
+  #endif
+      Serial.flush();
+      board_power_off();   // doesn't return
     }
+#endif
+    mesh::Dispatcher::loop();
+    _cli.loop();   // reboots after an 'ota end' / 'ota rollback' reply has gone out
+    checkTemperature();
+    updateStatusLed();
 
     if (revert_radio_at && millisHasNowPassed(revert_radio_at)) {   // revert radio params to orig
       revert_radio_at = 0;  // clear timer
-      radio_set_params(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word);
-      MESH_DEBUG_PRINTLN("Radio params restored");
+      if (applyRadioConfig(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr, _prefs.sync_word)) {
+        MESH_DEBUG_PRINTLN("Radio params restored");
+      } else {
+        reportRadioFailure("tempradio revert");
+      }
     }
 
 #ifdef ENABLE_BLE
     printBLEPackets();
 #endif
+
+    maybeSleep();
   }
 };
 
@@ -371,13 +805,33 @@ void halt() {
 }
 
 
+// Host link baud rate. 115200 unless the variant sets it (BYOMesh: 921600).
+// The host side (esp-tap, lora-tun-bridge pacing) must use the same rate.
+#ifndef MESHTNC_SERIAL_BAUD
+  #define MESHTNC_SERIAL_BAUD 115200
+#endif
+#ifndef MESHTNC_SERIAL_RX_BUFFER
+  #define MESHTNC_SERIAL_RX_BUFFER 1024   // about two worst-case (fully escaped) 255-byte KISS frames
+#endif
+
 void setup() {
-  Serial.begin(115200);
+#ifdef ESP32
+  Serial.setRxBufferSize(MESHTNC_SERIAL_RX_BUFFER);   // must be before begin()
+#endif
+  Serial.begin(MESHTNC_SERIAL_BAUD);
   delay(1000);
 
   board.begin();
+#ifdef HAS_STATUS_LED
+  status_led.begin();   // off until the saved LED settings are loaded
+#endif
 
   if (!radio_init()) { halt(); }
+#ifdef BYOMESH
+  the_mesh.setRadio(active_radio);
+#else
+  the_mesh.setRadio(&radio_driver);
+#endif
 
   fast_rng.begin(radio_get_rng_seed());
 
@@ -398,7 +852,9 @@ void setup() {
 }
 
 void loop() {
-  if (Serial.available())
+  if (Serial.available()) {
     the_mesh.handleSerialData();
+    the_mesh.noteSerialActivity();
+  }
   the_mesh.loop();
 }

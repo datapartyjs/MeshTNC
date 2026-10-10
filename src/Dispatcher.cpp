@@ -8,7 +8,20 @@
 
 namespace mesh {
 
-#define MAX_RX_DELAY_MILLIS   32000  // 32 seconds
+#define MAX_RX_DELAY_MILLIS   20  // 20milli seconds
+
+// When the TX-done interrupt hasn't arrived by (1.5 x estimated airtime + margin),
+// the chip is asked directly; if it's still transmitting, it's re-checked every
+// TX_RECHECK_MILLIS until the hard limit, after which it is forced to standby.
+#ifndef TX_TIMEOUT_MARGIN_MILLIS
+  #define TX_TIMEOUT_MARGIN_MILLIS   20
+#endif
+#ifndef TX_RECHECK_MILLIS
+  #define TX_RECHECK_MILLIS          5
+#endif
+#ifndef TX_HARD_TIMEOUT_MARGIN_MILLIS
+  #define TX_HARD_TIMEOUT_MARGIN_MILLIS   500
+#endif
 
 #ifndef NOISE_FLOOR_CALIB_INTERVAL
   #define NOISE_FLOOR_CALIB_INTERVAL   2000     // 2 seconds
@@ -33,10 +46,10 @@ int Dispatcher::calcRxDelay(float score, uint32_t air_time) const {
 }
 
 uint32_t Dispatcher::getCADFailRetryDelay() const {
-  return 200;
+  return 3;
 }
 uint32_t Dispatcher::getCADFailMaxDuration() const {
-  return 4000;   // 4 seconds
+  return 15;   // 60 milli seconds
 }
 
 void Dispatcher::loop() {
@@ -59,13 +72,35 @@ void Dispatcher::loop() {
   }
 
   if (outbound) {  // waiting for outbound send to be completed
-    if (_radio->isSendComplete()) {
+    int tx_status = _radio->pollSendStatus();   // driven by the radio's TX-done interrupt
+
+    if (tx_status == RADIO_TX_PENDING && millisHasNowPassed(outbound_expiry)) {
+      // interrupt is late: ask the chip what it's actually doing
+      tx_status = _radio->verifySendStatus();
+      if (tx_status == RADIO_TX_DONE) {
+        MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): TX finished but TX-done IRQ was missed", getLogDateTime());
+      } else if (tx_status == RADIO_TX_PENDING) {      // still on the air: keep waiting
+        if (millisHasNowPassed(outbound_hard_expiry)) {
+          _err_flags |= ERR_EVENT_TX_STUCK;
+          MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): WARNING: radio stuck in TX, forcing standby", getLogDateTime());
+          tx_status = RADIO_TX_FAILED;
+        } else {
+          outbound_expiry = futureMillis(TX_RECHECK_MILLIS);
+        }
+      } else if (tx_status == RADIO_TX_UNKNOWN) {      // radio can't report its state: old behaviour
+        MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): WARNING: outbound packed send timed out!", getLogDateTime());
+        tx_status = RADIO_TX_FAILED;
+      }
+    }
+
+    if (tx_status == RADIO_TX_DONE) {
       long t = _ms->getMillis() - outbound_start;
       total_air_time += t;  // keep track of how much air time we are using
       //Serial.print("  airtime="); Serial.println(t);
 
       // will need radio silence up to next_tx_time
-      next_tx_time = futureMillis(t * getAirtimeBudgetFactor());
+      //next_tx_time = futureMillis(t * getAirtimeBudgetFactor());
+      next_tx_time = futureMillis(0);
 
       _radio->onSendFinished();
       logTx(outbound, 2 + outbound->payload_len);
@@ -73,8 +108,9 @@ void Dispatcher::loop() {
 
       releasePacket(outbound);  // return to pool
       outbound = NULL;
-    } else if (millisHasNowPassed(outbound_expiry)) {
-      MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): WARNING: outbound packed send timed out!", getLogDateTime());
+    } else if (tx_status == RADIO_TX_FAILED) {
+      _err_flags |= ERR_EVENT_TX_FAIL;
+      MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): WARNING: outbound packet send failed", getLogDateTime());
 
       _radio->onSendFinished();
       logTxFail(outbound, 2 + outbound->payload_len);
@@ -88,6 +124,10 @@ void Dispatcher::loop() {
     // going back into receive mode now...
     next_agc_reset_time = futureMillis(getAGCResetInterval());
   }
+
+  // radio being reconfigured, or disabled: no new RX or TX. Must stay after the
+  // outbound block above, so a transmit already in flight is always completed.
+  if (getRadioGate() != RADIO_GATE_OPEN) return;
 
   if (getAGCResetInterval() > 0 && millisHasNowPassed(next_agc_reset_time)) {
     _radio->resetAGC();
@@ -167,8 +207,9 @@ void Dispatcher::processRecvPacket(Packet* pkt) {
 }
 
 void Dispatcher::checkSend() {
+  if (getRadioGate() != RADIO_GATE_OPEN) return;   // belt and braces: loop() already gates this
   if (_mgr->getOutboundCount(_ms->getMillis()) == 0) return;  // nothing waiting to send
-  if (!millisHasNowPassed(next_tx_time)) return;   // still in 'radio silence' phase (from airtime budget setting)
+  //if (!millisHasNowPassed(next_tx_time)) return;   // still in 'radio silence' phase (from airtime budget setting)
   if (_radio->isReceiving()) {   // LBT - check if radio is currently mid-receive, or if channel activity
     if (cad_busy_start == 0) {
       cad_busy_start = _ms->getMillis();   // record when CAD busy state started
@@ -199,11 +240,15 @@ void Dispatcher::checkSend() {
     } else {
       memcpy(&raw[len], outbound->payload, outbound->payload_len); len += outbound->payload_len;
 
-      uint32_t max_airtime = _radio->getEstAirtimeFor(len)*3/2;
+      // 1.5x estimated airtime plus a fixed margin: at fast settings (e.g. SX1281
+      // SF5/1625kHz) the estimate is only a few ms, and a late TX-done IRQ would
+      // otherwise abort the packet mid-air via onSendFinished()
+      uint32_t max_airtime = _radio->getEstAirtimeFor(len)*3/2 + TX_TIMEOUT_MARGIN_MILLIS;
       outbound_start = _ms->getMillis();
       bool success = _radio->startSendRaw(raw, len);
       if (!success) {
         MESH_DEBUG_PRINTLN("%s Dispatcher::loop(): ERROR: send start failed!", getLogDateTime());
+        _err_flags |= ERR_EVENT_TX_FAIL;
 
         logTxFail(outbound, outbound->getRawLength());
   
@@ -212,6 +257,8 @@ void Dispatcher::checkSend() {
         return;
       }
       outbound_expiry = futureMillis(max_airtime);
+      // only reached if the chip keeps reporting TX well past any plausible airtime
+      outbound_hard_expiry = futureMillis(_radio->getEstAirtimeFor(len)*2 + TX_HARD_TIMEOUT_MARGIN_MILLIS);
 
     #if MESH_PACKET_LOGGING
       Serial.print(getLogDateTime());
@@ -229,6 +276,8 @@ Packet* Dispatcher::obtainNewPacket() {
   } else {
     pkt->payload_len = 0;
     pkt->_snr = 0;
+    pkt->tx_tagged = false;
+    pkt->tx_tag = 0;
   }
   return pkt;
 }
@@ -237,9 +286,22 @@ void Dispatcher::releasePacket(Packet* packet) {
   _mgr->free(packet);
 }
 
+void Dispatcher::flushOutbound() {
+  Packet* pkt;
+  while ((pkt = _mgr->removeOutboundByIdx(0)) != NULL) {
+    logTxFail(pkt, pkt->getRawLength());   // never sent (e.g. KISS ACKMODE reports the failure)
+    _mgr->free(pkt);
+  }
+}
+
 void Dispatcher::sendPacket(Packet* packet, uint8_t priority, uint32_t delay_millis) {
-  if (packet->payload_len > MAX_PACKET_PAYLOAD) {
+  if (getRadioGate() == RADIO_GATE_CLOSED) {   // no valid radio config: never queue for TX
+    _err_flags |= ERR_EVENT_RADIO_DISABLED;
+    logTxFail(packet, packet->getRawLength());
+    _mgr->free(packet);
+  } else if (packet->payload_len > MAX_PACKET_PAYLOAD) {
     MESH_DEBUG_PRINTLN("%s Dispatcher::sendPacket(): ERROR: invalid packet... payload_len=%d", getLogDateTime(), (uint32_t) packet->payload_len);
+    logTxFail(packet, packet->getRawLength());
     _mgr->free(packet);
   } else {
     _mgr->queueOutbound(packet, priority, futureMillis(delay_millis));

@@ -3,10 +3,24 @@
 #include <Mesh.h>
 #include <RadioLib.h>
 
+#define STATE_INT_READY_FLAG  16   // == STATE_INT_READY in RadioLibWrappers.cpp
+
 class RadioLibWrapper : public mesh::Radio {
+  static RadioLibWrapper* _instances[2];
+  static int _next_id;
+  static void setFlag0();
+  static void setFlag1();
+
+  int8_t _instance_id;
+  bool _tx_poll_irq;   // TX: interrupt fired for something other than TX-done, poll the chip
+
 protected:
   PhysicalLayer* _radio;
   mesh::MainBoard* _board;
+  volatile uint8_t _state;
+  bool _asleep;   // set by sleepRadio(): a sleeping SX128x wakes on any SPI access
+  volatile uint32_t _irq_millis;    // millis() at the last DIO interrupt (set in the ISR)
+  uint32_t _last_rx_millis;         // _irq_millis of the last packet recvRaw() returned
   uint32_t n_recv, n_sent;
   int16_t _noise_floor, _threshold;
   uint16_t _num_floor_samples;
@@ -17,16 +31,43 @@ protected:
   float packetScoreInt(float snr, int sf, int packet_len);
   virtual bool isReceivingPacket() =0;
 
+  // chip-specific TX state, read over SPI. 1 = yes, 0 = no, -1 = this chip can't tell
+  // (with -1 the wrapper keeps the old behaviour: any interrupt during TX means done)
+  virtual int readTxDoneFlag() { return -1; }
+  virtual int readInTxMode() { return -1; }
+
+  // called by recvRaw() right after a packet was read, before the radio is put back in
+  // RX: the place to latch per-packet values (RSSI, SNR) that a new RX would reset
+  virtual void onPacketRead() { }
+
 public:
-  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board) : _radio(&radio), _board(&board) { n_recv = n_sent = 0; }
+  RadioLibWrapper(PhysicalLayer& radio, mesh::MainBoard& board)
+    : _instance_id(-1), _tx_poll_irq(false), _radio(&radio), _board(&board), _state(0), _asleep(false),
+      _irq_millis(0), _last_rx_millis(0)
+  { n_recv = n_sent = 0; }
 
   void begin() override;
+  void standby() { idle(); }   // stop RX/TX on this radio (used when switching radios)
+
+  // optional TX interlock set by the variant: startSendRaw() refuses to transmit while it
+  // returns false (e.g. the RF switch doesn't connect this radio to the antenna)
+  bool (*tx_allowed)() = nullptr;
+
+  // low-power sleep for a radio that isn't in use (configuration is retained where the chip
+  // supports it). wakeRadio() must succeed before any other call on a sleeping radio.
+  virtual bool sleepRadio();
+  virtual bool wakeRadio();
   int recvRaw(uint8_t* bytes, int sz) override;
   uint32_t getEstAirtimeFor(int len_bytes) override;
   bool startSendRaw(const uint8_t* bytes, int len) override;
   bool isSendComplete() override;
+  int pollSendStatus() override;
+  uint32_t getLastRecvMillis() const override { return _last_rx_millis; }
+  int verifySendStatus() override;
   void onSendFinished() override;
   bool isInRecvMode() const override;
+  // what the DIO ISR does, for when the interrupt itself was masked (ESP32 light sleep)
+  void signalInterrupt() { _irq_millis = millis(); _state |= STATE_INT_READY_FLAG; }
   bool isChannelActive();
 
   bool isReceiving() override { 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stddef.h>
 
 #define MAX_HASH_SIZE        8
 #define PUB_KEY_SIZE        32
@@ -36,6 +37,9 @@ namespace mesh {
 class MainBoard {
 public:
   virtual uint16_t getBattMilliVolts() = 0;
+  virtual bool getMCUTemperature(float& celsius) { return false; }   // false: no sensor
+  // fixed, unique ID of this board as a hex string (e.g. a factory MAC); false: not supported
+  virtual bool getUniqueId(char* dest, size_t len) { return false; }
   virtual const char* getManufacturerName() const = 0;
   virtual void onBeforeTransmit() { }
   virtual void onAfterTransmit() { }

@@ -18,9 +18,20 @@ public:
 /**
  * \brief  Abstraction of this device's packet radio.
 */
+#define RADIO_TX_PENDING   0
+#define RADIO_TX_DONE      1
+#define RADIO_TX_FAILED    2
+#define RADIO_TX_UNKNOWN  (-1)
+
 class Radio {
 public:
   virtual void begin() { }
+
+  /**
+   * \returns millis() when the radio signalled the last packet returned by recvRaw() as received
+   *    (its RX-done interrupt), or 0 if this radio doesn't record it.
+  */
+  virtual uint32_t getLastRecvMillis() const { return 0; }
 
   /**
    * \brief  polls for incoming raw packet.
@@ -49,6 +60,20 @@ public:
    * \returns true if the previous 'startSendRaw()' completed successfully.
   */
   virtual bool isSendComplete() = 0;
+
+  /**
+   * \brief  cheap, interrupt-driven check on the transmit started by 'startSendRaw()'.
+   * \returns RADIO_TX_PENDING, RADIO_TX_DONE or RADIO_TX_FAILED.
+   *    Radios that can't tell why their interrupt fired fall back to isSendComplete().
+  */
+  virtual int pollSendStatus() { return isSendComplete() ? RADIO_TX_DONE : RADIO_TX_PENDING; }
+
+  /**
+   * \brief  authoritative check, asking the chip itself (used when the TX-done interrupt is late).
+   * \returns RADIO_TX_DONE (finished, IRQ missed), RADIO_TX_PENDING (chip still transmitting),
+   *    RADIO_TX_FAILED (chip left TX without finishing), or RADIO_TX_UNKNOWN (can't tell).
+  */
+  virtual int verifySendStatus() { return RADIO_TX_UNKNOWN; }
 
   /**
    * \brief  a hook for doing any necessary clean up after transmit.
@@ -106,6 +131,18 @@ typedef uint32_t  DispatcherAction;
 #define ERR_EVENT_FULL              (1 << 0)
 #define ERR_EVENT_CAD_TIMEOUT       (1 << 1)
 #define ERR_EVENT_STARTRX_TIMEOUT   (1 << 2)
+#define ERR_EVENT_TX_FAIL           (1 << 3)
+#define ERR_EVENT_TX_STUCK          (1 << 4)
+#define ERR_EVENT_RADIO_DISABLED    (1 << 5)
+
+// Radio gate, from Dispatcher::getRadioGate():
+//   OPEN   - normal operation
+//   HOLD   - radio is being (re)configured: finish any TX in flight, start no new RX/TX,
+//            keep queued packets
+//   CLOSED - no valid radio config: no RX/TX at all, new outbound packets are dropped
+#define RADIO_GATE_OPEN     0
+#define RADIO_GATE_HOLD     1
+#define RADIO_GATE_CLOSED   2
 
 /**
  * \brief  The low-level task that manages detecting incoming Packets, and the queueing
@@ -113,7 +150,7 @@ typedef uint32_t  DispatcherAction;
 */
 class Dispatcher {
   Packet* outbound;  // current outbound packet
-  unsigned long outbound_expiry, outbound_start, total_air_time;
+  unsigned long outbound_expiry, outbound_hard_expiry, outbound_start, total_air_time;
   unsigned long next_tx_time;
   unsigned long cad_busy_start;
   unsigned long radio_nonrx_start;
@@ -156,8 +193,16 @@ protected:
   virtual uint32_t getCADFailMaxDuration() const;
   virtual int getInterferenceThreshold() const { return 0; }    // disabled by default
   virtual int getAGCResetInterval() const { return 0; }    // disabled by default
+  virtual int getRadioGate() const { return RADIO_GATE_OPEN; }
 
 public:
+  void setRadio(Radio* r) { _radio = r; }
+  Radio* getRadio() const { return _radio; }
+  bool isSending() const { return outbound != NULL; }
+  // a packet is waiting because listen-before-talk found the channel busy
+  bool isChannelBusy() const { return cad_busy_start != 0 && _mgr->getOutboundCount(_ms->getMillis()) > 0; }
+  void flushOutbound();   // drop every queued (not yet transmitting) outbound packet
+
   void begin();
   void loop();
 

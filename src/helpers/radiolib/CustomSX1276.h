@@ -72,6 +72,14 @@ class CustomSX1276 : public SX1276 {
         | RH_RF95_MODEM_STATUS_HEADER_INFO_VALID)) != 0;
     }
 
+    bool isTxDone() {
+      return (this->mod->SPIgetRegValue(RADIOLIB_SX127X_REG_IRQ_FLAGS) & RADIOLIB_SX127X_CLEAR_IRQ_FLAG_TX_DONE) != 0;
+    }
+
+    bool isTransmitting() {
+      return this->mod->SPIgetRegValue(RADIOLIB_SX127X_REG_OP_MODE, 2, 0) == RADIOLIB_SX127X_TX;
+    }
+
     int tryScanChannel() {
       // start CAD
       int16_t state = startChannelScan();

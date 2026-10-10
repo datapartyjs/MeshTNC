@@ -49,6 +49,9 @@ class CustomSX1262 : public SX1262 {
         tcxo = SX126X_DIO3_TCXO_VOLTAGE;
         status = begin(LORA_FREQ, LORA_BW, LORA_SF, cr, RADIOLIB_SX126X_SYNC_WORD_PRIVATE, LORA_TX_POWER, 16, tcxo);
       }
+      if (status == RADIOLIB_ERR_CHIP_NOT_FOUND) {
+        status = begin(LORA_FREQ, LORA_BW, LORA_SF, cr, RADIOLIB_SX126X_SYNC_WORD_PRIVATE, LORA_TX_POWER, 16, tcxo);
+      }
       if (status != RADIOLIB_ERR_NONE) {
         Serial.print("ERROR: radio init failed: ");
         Serial.println(status);

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "CommonCLI.h"
+#include "BuildInfo.h"
 #include "TxtDataHelpers.h"
 #include <RTClib.h>
 
@@ -58,12 +59,19 @@ void CommonCLI::loadPrefsInt(FILESYSTEM* fs, const char* filename) {
     file.read((uint8_t *) &_prefs->ble_max_results, sizeof(_prefs->ble_max_results));
     file.read((uint8_t *) &_prefs->ble_scantime, sizeof(_prefs->ble_scantime));
 
+    // LED settings: older files end before these, so the defaults are kept
+    uint8_t v;
+    if (file.read(&v, 1) == 1) _prefs->led_enabled = (v != 0);
+    if (file.read(&v, 1) == 1) _prefs->led_mode = (v == LED_MODE_COMMAND) ? LED_MODE_COMMAND : LED_MODE_STATUS;
+    if (file.read(&v, 1) == 1) _prefs->kiss_rxinfo = (v != 0);
+    if (file.read(&v, 1) == 1) _prefs->powersave = (v != 0);
+
     // sanitise bad pref values
     _prefs->rx_delay_base = constrain(_prefs->rx_delay_base, 0, 20.0f);
     _prefs->tx_delay_factor = constrain(_prefs->tx_delay_factor, 0, 2.0f);
     _prefs->airtime_factor = constrain(_prefs->airtime_factor, 0, 9.0f);
     _prefs->freq = constrain(_prefs->freq, 400.0f, 2500.0f);
-    _prefs->bw = constrain(_prefs->bw, 62.5f, 500.0f);
+    _prefs->bw = constrain(_prefs->bw, 62.5f, 1625.0f);
     _prefs->sf = constrain(_prefs->sf, 5, 12);
     _prefs->cr = constrain(_prefs->cr, 5, 8);
     _prefs->tx_power_dbm = constrain(_prefs->tx_power_dbm, 1, 30);
@@ -111,6 +119,13 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
     file.write((uint8_t *) &_prefs->ble_active_scan, sizeof(_prefs->ble_active_scan));
     file.write((uint8_t *) &_prefs->ble_max_results, sizeof(_prefs->ble_max_results));
     file.write((uint8_t *) &_prefs->ble_scantime, sizeof(_prefs->ble_scantime));
+    uint8_t led_enabled = _prefs->led_enabled ? 1 : 0;
+    file.write(&led_enabled, 1);
+    file.write(&_prefs->led_mode, 1);
+    uint8_t kiss_rxinfo = _prefs->kiss_rxinfo ? 1 : 0;
+    file.write(&kiss_rxinfo, 1);
+    uint8_t powersave = _prefs->powersave ? 1 : 0;
+    file.write(&powersave, 1);
 
     file.close();
   }
@@ -120,6 +135,13 @@ void CommonCLI::savePrefs(FILESYSTEM* fs) {
 
 void CommonCLI::savePrefs() {
   _callbacks->savePrefs();
+}
+
+void CommonCLI::loop() {
+  if (_updater.loop()) {   // 'ota end' / 'ota rollback' replied: now reboot into the chosen image
+    Serial.flush();
+    _board->reboot();   // doesn't return
+  }
 }
 
 void CommonCLI::handleSerialData() {
@@ -170,6 +192,36 @@ void CommonCLI::handleCLICommand(
 ){
   if (memcmp(command, "reboot", 6) == 0) {
     _board->reboot();  // doesn't return
+  } else if (memcmp(command, "sleep", 5) == 0 && (command[5] == 0 || command[5] == ' ')) {
+    const char* arg = &command[5];
+    while (*arg == ' ') arg++;
+    if (*arg == 0) {
+      _callbacks->sleepFor(-1, resp);
+    } else {
+      char* end;
+      long secs = strtol(arg, &end, 10);
+      if (end == arg || secs <= 0) strcpy(resp, "Error, use: sleep [<seconds>]");
+      else _callbacks->sleepFor(secs, resp);
+    }
+  } else if (memcmp(command, "wake", 4) == 0 && (command[4] == 0 || command[4] == ' ')) {
+    _callbacks->wakeUp(resp);
+  } else if (memcmp(command, "poweroff", 8) == 0 && (command[8] == 0 || command[8] == ' ')) {
+    const char* arg = &command[8];
+    while (*arg == ' ') arg++;
+    if (*arg == 0) {
+      _callbacks->powerOffBoard(resp);
+    } else if (memcmp(arg, "lora", 4) == 0 && (arg[4] == 0 || arg[4] == ' ')) {
+      const char* n = &arg[4];
+      while (*n == ' ') n++;
+      int which = (*n == 0) ? 0 : atoi(n);
+      if (*n != 0 && which <= 0) {
+        strcpy(resp, "Error, use: poweroff lora [<radio number>]");
+      } else {
+        _callbacks->powerOffRadios(which, resp);
+      }
+    } else {
+      strcpy(resp, "Error, use: poweroff, or poweroff lora [<radio number>]");
+    }
   } else if (memcmp(command, "serial mode ", 12) == 0) {
     const char* mode = &command[12];
     if (memcmp(mode, "kiss", 4) == 0) {
@@ -184,8 +236,8 @@ void CommonCLI::handleCLICommand(
     mesh::Packet* pkt = _mesh->obtainNewPacket();
     uint8_t tx_buf[MAX_PACKET_PAYLOAD];
     uint8_t len_buf = 0;
-    char tmp[3];
-    for (int i = 0; i < strlen(tx_hex); i+= 2) {
+    char tmp[3] = {0, 0, 0};
+    for (size_t i = 0; i + 1 < strlen(tx_hex) && len_buf < sizeof(tx_buf); i += 2) {
       if (tx_hex[i] == '\n' || tx_hex[i] == ' ') {
         break;
       }
@@ -214,6 +266,8 @@ void CommonCLI::handleCLICommand(
     if (!_board->startOTAUpdate(_prefs->node_name, resp)) {
       strcpy(resp, "Error");
     }
+  } else if (memcmp(command, "ota", 3) == 0 && (command[3] == 0 || command[3] == ' ')) {
+    handleOTACommand(&command[3], resp);
   } else if (memcmp(command, "clock", 5) == 0) {
     uint32_t now = getRTCClock()->getCurrentTime();
     DateTime dt = DateTime(now);
@@ -244,14 +298,17 @@ void CommonCLI::handleCLICommand(
     uint8_t sync_word  = num > 4 ? strtol(parts[4], nullptr, 16) : 0;
     int temp_timeout_mins  = num > 5 ? atoi(parts[5]) : 0;
     if (freq >= 300.0f && freq <= 2500.0f &&
-        sf >= 7 && sf <= 12 &&
+        sf >= 5 && sf <= 12 &&
         cr >= 5 && cr <= 8 &&
-        bw >= 7.0f && bw <= 500.0f &&
+        bw >= 7.0f && bw <= 1625.0f &&
         temp_timeout_mins > 0)
     {
-      _callbacks->applyTempRadioParams(freq, bw, sf, cr,
-                                       sync_word, temp_timeout_mins);
-      sprintf(resp, "OK - temp params for %d mins", temp_timeout_mins);
+      if (_callbacks->applyTempRadioParams(freq, bw, sf, cr,
+                                           sync_word, temp_timeout_mins)) {
+        sprintf(resp, "OK - temp params for %d mins", temp_timeout_mins);
+      } else {
+        strcpy(resp, "Error, radio config failed - radio disabled (no RX/TX)");
+      }
     } else {
       strcpy(resp, "Error, invalid params");
     }
@@ -284,14 +341,64 @@ void CommonCLI::handleCLICommand(
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->rx_delay_base));
     } else if (memcmp(config, "txdelay", 7) == 0) {
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->tx_delay_factor));
-    } else if (memcmp(config, "txpower", 2) == 0 &&
-               (config[2] == 0 || config[2] == ' '))
+    } else if (memcmp(config, "txpower", 7) == 0 &&
+              (config[7] == 0 || config[7] == ' '))
     {
       sprintf(resp, "> %d", (uint32_t) _prefs->tx_power_dbm);
     } else if (memcmp(config, "freq", 4) == 0) {
       sprintf(resp, "> %s", StrHelper::ftoa(_prefs->freq));
     } else if (memcmp(config, "syncword", 8) == 0) {
       sprintf(resp, "> 0x%x", (uint32_t)_prefs->sync_word);
+    } else if (memcmp(config, "temp", 4) == 0) {   // MCU core temperature, deg C
+      float celsius;
+      if (_board->getMCUTemperature(celsius)) {
+        sprintf(resp, "> %s", StrHelper::ftoa(celsius));
+      } else {
+        strcpy(resp, "Error, no MCU temperature sensor on this board");
+      }
+    } else if (memcmp(config, "id", 2) == 0 && (config[2] == 0 || config[2] == ' ')) {
+      char id[32];
+      if (_board->getUniqueId(id, sizeof(id))) {
+        sprintf(resp, "> %s", id);
+      } else {
+        strcpy(resp, "Error, no unique ID on this board");
+      }
+    } else if (memcmp(config, "kiss rxinfo", 11) == 0) {
+      sprintf(resp, "> %s", _prefs->kiss_rxinfo ? "on" : "off");
+    } else if (memcmp(config, "powersave", 9) == 0) {
+      if (!_callbacks->supportsSleep()) {
+        strcpy(resp, "Error, not supported on this board");
+      } else {
+        char info[100];
+        _callbacks->getSleepInfo(info);
+        sprintf(resp, "> %s%s%s", _prefs->powersave ? "on" : "off", info[0] ? ", " : "", info);
+      }
+    } else if (memcmp(config, "githash", 7) == 0) {
+      sprintf(resp, "> %s", BuildInfo::gitHash());
+    } else if (memcmp(config, "builddate", 9) == 0) {
+      sprintf(resp, "> %s", BuildInfo::date());
+    } else if (memcmp(config, "variant", 7) == 0) {
+      sprintf(resp, "> %s,%s,%s", BuildInfo::variant(), BuildInfo::env(), BuildInfo::board());
+    } else if (memcmp(config, "ledrgb", 6) == 0) {
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else {
+        uint8_t r, g, b;
+        _callbacks->getLedColor(r, g, b);
+        sprintf(resp, "> %d,%d,%d", r, g, b);
+      }
+    } else if (memcmp(config, "ledmode", 7) == 0) {
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else {
+        sprintf(resp, "> %s", _prefs->led_mode == LED_MODE_COMMAND ? "command" : "status");
+      }
+    } else if (memcmp(config, "led", 3) == 0) {   // after ledrgb / ledmode
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else {
+        sprintf(resp, "> %s", _prefs->led_enabled ? "on" : "off");
+      }
     } else if (memcmp(config, "ble", 3) == 0) {
       sprintf(resp, "> %s,%s,%d,%d", 
         _prefs->ble_active_scan == 1 ? "on" : "off",
@@ -322,7 +429,7 @@ void CommonCLI::handleCLICommand(
       savePrefs();
       strcpy(resp, "OK");
     } else if (memcmp(config, "ble ", 4) == 0) {
-      strcpy(_tmp, &config[6]);
+      strcpy(_tmp, &config[4]);
       const char *parts[4];
       int num = mesh::Utils::parseTextParts(_tmp, parts, 4);
 
@@ -352,16 +459,20 @@ void CommonCLI::handleCLICommand(
       if (freq >= 300.0f && freq <= 2500.0f &&
           sf >= 5 && sf <= 12 &&
           cr >= 5 && cr <= 8 &&
-          bw >= 7.0f && bw <= 500.0f
+          bw >= 7.0f && bw <= 1625.0f
       ){
-        _prefs->sf = sf;
-        _prefs->cr = cr;
-        _prefs->freq = freq;
-        _prefs->bw = bw;
-        _prefs->sync_word = sync_word;
-        _callbacks->savePrefs();
-        _callbacks->applyRadioParams(freq, bw, sf, cr, sync_word);
-        strcpy(resp, "OK");
+        // apply first: only a config the radio actually accepted is saved
+        if (_callbacks->applyRadioParams(freq, bw, sf, cr, sync_word)) {
+          _prefs->sf = sf;
+          _prefs->cr = cr;
+          _prefs->freq = freq;
+          _prefs->bw = bw;
+          _prefs->sync_word = sync_word;
+          _callbacks->savePrefs();
+          strcpy(resp, "OK");
+        } else {
+          strcpy(resp, "Error, radio config failed - radio disabled (no RX/TX), settings not saved");
+        }
       } else {
         strcpy(resp, "Error, invalid radio params");
       }
@@ -391,26 +502,78 @@ void CommonCLI::handleCLICommand(
       } else {
         strcpy(resp, "Error, cannot be negative");
       }
-    } else if (memcmp(config, "txpower ", 3) == 0) {
-      _prefs->tx_power_dbm = atoi(&config[3]);
+    } else if (memcmp(config, "txpower ", 8) == 0) {
+      _prefs->tx_power_dbm = constrain(atoi(&config[8]), 1, 30);
       savePrefs();
       _callbacks->setTxPower(_prefs->tx_power_dbm);
       strcpy(resp, "OK");
     } else if (memcmp(config, "kiss ", 5) == 0) {
       const char* kiss_config = &config[5];
-      if (memcmp(kiss_config, "port ", 5) == 0) {
-        uint8_t kiss_port = atoi(&kiss_config[5]);
-        if (kiss_port < 16) {
-          _prefs->kiss_port = kiss_port;
+      if (memcmp(kiss_config, "rxinfo ", 7) == 0) {
+        const char* v = &kiss_config[7];
+        if (memcmp(v, "on", 2) == 0 || memcmp(v, "off", 3) == 0) {
+          _prefs->kiss_rxinfo = (memcmp(v, "on", 2) == 0);
           savePrefs();
           strcpy(resp, "OK");
         } else {
-          sprintf(resp,
-                  "KISS port must be between 0 and 15, invalid value: %d",
-                  kiss_port);
+          strcpy(resp, "Error, use: set kiss rxinfo on|off");
         }
       } else {
         sprintf(resp, "unknown kiss config: %s", kiss_config);
+      }
+    } else if (memcmp(config, "powersave ", 10) == 0) {
+      const char* v = &config[10];
+      if (!_callbacks->supportsSleep()) {
+        strcpy(resp, "Error, not supported on this board");
+      } else if (memcmp(v, "on", 2) == 0 || memcmp(v, "off", 3) == 0) {
+        _prefs->powersave = (memcmp(v, "on", 2) == 0);
+        savePrefs();
+        strcpy(resp, "OK");
+      } else {
+        strcpy(resp, "Error, use: set powersave on|off");
+      }
+    } else if (memcmp(config, "led ", 4) == 0) {
+      const char* v = &config[4];
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else if (memcmp(v, "on", 2) == 0 || memcmp(v, "off", 3) == 0) {
+        _prefs->led_enabled = (memcmp(v, "on", 2) == 0);
+        savePrefs();
+        _callbacks->applyLedSettings();
+        strcpy(resp, "OK");
+      } else {
+        strcpy(resp, "Error, use: set led on|off");
+      }
+    } else if (memcmp(config, "ledmode ", 8) == 0) {
+      const char* v = &config[8];
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else if (memcmp(v, "command", 7) == 0 || memcmp(v, "status", 6) == 0) {
+        _prefs->led_mode = (memcmp(v, "command", 7) == 0) ? LED_MODE_COMMAND : LED_MODE_STATUS;
+        savePrefs();
+        _callbacks->applyLedSettings();
+        strcpy(resp, "OK");
+      } else {
+        strcpy(resp, "Error, use: set ledmode command|status");
+      }
+    } else if (memcmp(config, "ledrgb ", 7) == 0) {
+      strcpy(_tmp, &config[7]);
+      const char *parts[3];
+      int num = mesh::Utils::parseTextParts(_tmp, parts, 3);
+      int r = num > 0 ? atoi(parts[0]) : -1;
+      int g = num > 1 ? atoi(parts[1]) : -1;
+      int b = num > 2 ? atoi(parts[2]) : -1;
+      if (!_callbacks->hasLed()) {
+        strcpy(resp, "Error, no LED on this board");
+      } else if (num != 3 || r < 0 || r > 255 || g < 0 || g > 255 || b < 0 || b > 255) {
+        strcpy(resp, "Error, use: set ledrgb <r>,<g>,<b> (0-255 each)");
+      } else if (!_prefs->led_enabled) {
+        strcpy(resp, "Ignored - LED is disabled");
+      } else if (_prefs->led_mode != LED_MODE_COMMAND) {
+        strcpy(resp, "Ignored - LED is in status mode");
+      } else {
+        _callbacks->setLedColor(r, g, b);
+        strcpy(resp, "OK");
       }
     } else if (sender_timestamp == 0 && memcmp(config, "freq ", 5) == 0) {
       _prefs->freq = atof(&config[5]);
@@ -424,9 +587,10 @@ void CommonCLI::handleCLICommand(
     sprintf(resp, "File system erase: %s", s ? "OK" : "Err");
   } else if (memcmp(command, "ver", 3) == 0) {
     sprintf(resp,
-            "%s (Build: %s)",
+            "%s (Build: %s) git %s, variant %s, env %s, board %s",
             _callbacks->getFirmwareVer(),
-            _callbacks->getBuildDate());
+            _callbacks->getBuildDate(),
+            BuildInfo::gitHash(), BuildInfo::variant(), BuildInfo::env(), BuildInfo::board());
   } else if (memcmp(command, "log start", 9) == 0) {
     _callbacks->setLoggingOn(true);
     strcpy(resp, "   logging on");
@@ -472,4 +636,53 @@ void CommonCLI::handleCLICommand(
   }
 }
 
+// "ota data <offset> <hex>" with the biggest chunk must fit a CLI line / KISS frame
+static_assert(9 + 10 + 1 + 2 * OTA_CHUNK_MAX + 1 < CMD_BUF_LEN_MAX, "OTA_CHUNK_MAX too big for CMD_BUF_LEN_MAX");
 
+// Firmware update over the CLI, see FirmwareUpdater.h and README "Firmware updates over serial":
+//   ota begin <size> [<signature hex>]
+//   ota data <offset> <hex>
+//   ota end [noreboot]
+//   ota abort | ota status | ota rollback
+void CommonCLI::handleOTACommand(const char* args, char* resp) {
+  while (*args == ' ') args++;
+  char* end;
+  if (memcmp(args, "begin", 5) == 0 && (args[5] == 0 || args[5] == ' ')) {
+    const char* p = &args[5];
+    while (*p == ' ') p++;
+    unsigned long size = strtoul(p, &end, 10);
+    if (end == p || (*end != 0 && *end != ' ')) {
+      strcpy(resp, "Error, use: ota begin <size> [<signature hex>]");
+      return;
+    }
+    while (*end == ' ') end++;
+    _updater.begin(size, end, resp);
+  } else if (memcmp(args, "data", 4) == 0 && (args[4] == 0 || args[4] == ' ')) {
+    const char* p = &args[4];
+    while (*p == ' ') p++;
+    unsigned long offset = strtoul(p, &end, 10);
+    uint8_t chunk[OTA_CHUNK_MAX];
+    int n = -1;
+    if (end != p && *end == ' ') {
+      while (*end == ' ') end++;
+      n = FirmwareUpdater::parseHex(end, chunk, sizeof(chunk));
+    }
+    if (n <= 0) {
+      sprintf(resp, "Error, use: ota data <offset> <hex> (1 to %d bytes)", OTA_CHUNK_MAX);
+      return;
+    }
+    _updater.write(offset, chunk, n, resp);
+  } else if (memcmp(args, "end", 3) == 0 && (args[3] == 0 || args[3] == ' ')) {
+    const char* p = &args[3];
+    while (*p == ' ') p++;
+    _updater.end(strcmp(p, "noreboot") != 0, resp);
+  } else if (strcmp(args, "abort") == 0) {
+    _updater.abort(resp);
+  } else if (strcmp(args, "status") == 0) {
+    _updater.status(resp);
+  } else if (strcmp(args, "rollback") == 0) {
+    _updater.rollback(resp);
+  } else {
+    strcpy(resp, "Error, use: ota begin <size> [<signature hex>] | ota data <offset> <hex> | ota end [noreboot] | ota abort | ota status | ota rollback");
+  }
+}

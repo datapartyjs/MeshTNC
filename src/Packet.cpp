@@ -6,6 +6,9 @@ namespace mesh {
 
 Packet::Packet() {
   payload_len = 0;
+  _snr = 0;
+  tx_tagged = false;
+  tx_tag = 0;
 }
 
 int Packet::getRawLength() const {

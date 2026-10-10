@@ -26,19 +26,47 @@ enum KISSCmd: uint8_t {
   TxTail = 0x4,
   FullDuplex = 0x5,
   Vendor = 0x6,
+  AckData = 0xC,   // ACKMODE (BPQ): data frame with a 2-byte id, acknowledged once sent
+  RxInfoData = 0xD,   // TNC -> host: received frame with RX info in front (set kiss rxinfo on)
   Return = 0xF
 };
 
 enum KISSPort: uint8_t {
   LoRa_Port = 0x0,
-  GPS_Port = 0x1,
+  CLI_Port = 0x1,   // the text CLI over KISS: data frame = one command, reply = one data frame
   BLE_Port = 0x2,
   WiFi_Port = 0x3,
+  GPS_Port = 0x4,
   Global_Port = 0xf,
   None = 0xff
 };
 
+// ACKMODE acknowledgement, TNC -> host, on the KISS port (cmd 0xC; 0x0C on port 0):
+//   sent:    FEND 0x0C <id_hi> <id_lo> FEND             (exactly as BPQ ACKMODE)
+//   failed:  FEND 0x0C <id_hi> <id_lo> <status> FEND    (MeshTNC extension, status below)
+#define KISS_ACK_TX_FAILED   0x01   // radio failed / timed out, refused (interlock), or disabled
+#define KISS_ACK_NO_BUFFER   0x02   // all packet buffers in use: host is sending too fast
+#define KISS_ACK_BAD_FRAME   0x03   // empty, too large, or not a valid frame
+
+// RX info frame, TNC -> host, when 'set kiss rxinfo on' (cmd 0xD; 0x0D on port 0):
+//   FEND 0x0D <seq:2> <ver=0x01> <rssi:2> <snr:1> <rx_ms:4> <frame...> FEND
+//   seq    uint16, big-endian: +1 for every RX info frame sent (wraps), in the same place as
+//          the id in an ACKMODE ack. A gap means a frame was lost on the serial link.
+//   rssi   int16, big-endian, 0.25 dB units (dBm x 4)
+//   snr    int8, 0.25 dB units (dB x 4)
+//   rx_ms  uint32, big-endian: TNC millis() at the radio's RX-done interrupt (wraps ~49.7 days)
+//   frame  exactly what a plain data (0x00) frame would carry
+#define KISS_RXINFO_VER       0x01
+#define KISS_RXINFO_HDR_LEN   10
+
+// runs one CLI command, writing its reply text to resp (CMD_BUF_LEN_MAX bytes)
+typedef void (*KISSCLIHandler)(void* ctx, const char* command, char* resp);
+
 class KISSModem {
+  KISSCLIHandler _cli_handler = nullptr;
+  void* _cli_ctx = nullptr;
+  void handleCLIFrame(const char* data, uint16_t len);
+
   uint16_t _len;
   bool _esc;
   uint32_t _txdelay;
@@ -53,12 +81,17 @@ class KISSModem {
         _len = 0;
         _esc = false;
         _txdelay = 0;
+        _port = KISSPort::LoRa_Port;
     }
     KISSPort getPort() { return _port; };
     void setPort(KISSPort port) { _port = port; };
-    void reset() {_len = 0; };
+    void reset() { _len = 0; _esc = false; };
+    bool isIdle() const { return _len == 0 && !_esc; }   // not in the middle of a frame
+    void setCLIHandler(KISSCLIHandler handler, void* ctx) { _cli_handler = handler; _cli_ctx = ctx; }
     void parseSerialKISS();
     void handleKISSCommand(uint32_t sender_timestamp, const char* kiss_data, uint16_t len);
+    // ACKMODE: tell the host what happened to tagged frame <tag> (KISS mode only)
+    void sendAck(uint16_t tag, bool sent, uint8_t status = 0);
     uint16_t encodeKISSFrame(
       const KISSCmd cmd, 
       const uint8_t* data, const int data_len, 
