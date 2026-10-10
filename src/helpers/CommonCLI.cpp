@@ -137,6 +137,13 @@ void CommonCLI::savePrefs() {
   _callbacks->savePrefs();
 }
 
+void CommonCLI::loop() {
+  if (_updater.loop()) {   // 'ota end' / 'ota rollback' replied: now reboot into the chosen image
+    Serial.flush();
+    _board->reboot();   // doesn't return
+  }
+}
+
 void CommonCLI::handleSerialData() {
   if (_cli_mode == CLIMode::CLI) {
     parseSerialCLI();
@@ -259,6 +266,8 @@ void CommonCLI::handleCLICommand(
     if (!_board->startOTAUpdate(_prefs->node_name, resp)) {
       strcpy(resp, "Error");
     }
+  } else if (memcmp(command, "ota", 3) == 0 && (command[3] == 0 || command[3] == ' ')) {
+    handleOTACommand(&command[3], resp);
   } else if (memcmp(command, "clock", 5) == 0) {
     uint32_t now = getRTCClock()->getCurrentTime();
     DateTime dt = DateTime(now);
@@ -627,4 +636,53 @@ void CommonCLI::handleCLICommand(
   }
 }
 
+// "ota data <offset> <hex>" with the biggest chunk must fit a CLI line / KISS frame
+static_assert(9 + 10 + 1 + 2 * OTA_CHUNK_MAX + 1 < CMD_BUF_LEN_MAX, "OTA_CHUNK_MAX too big for CMD_BUF_LEN_MAX");
 
+// Firmware update over the CLI, see FirmwareUpdater.h and README "Firmware updates over serial":
+//   ota begin <size> [<signature hex>]
+//   ota data <offset> <hex>
+//   ota end [noreboot]
+//   ota abort | ota status | ota rollback
+void CommonCLI::handleOTACommand(const char* args, char* resp) {
+  while (*args == ' ') args++;
+  char* end;
+  if (memcmp(args, "begin", 5) == 0 && (args[5] == 0 || args[5] == ' ')) {
+    const char* p = &args[5];
+    while (*p == ' ') p++;
+    unsigned long size = strtoul(p, &end, 10);
+    if (end == p || (*end != 0 && *end != ' ')) {
+      strcpy(resp, "Error, use: ota begin <size> [<signature hex>]");
+      return;
+    }
+    while (*end == ' ') end++;
+    _updater.begin(size, end, resp);
+  } else if (memcmp(args, "data", 4) == 0 && (args[4] == 0 || args[4] == ' ')) {
+    const char* p = &args[4];
+    while (*p == ' ') p++;
+    unsigned long offset = strtoul(p, &end, 10);
+    uint8_t chunk[OTA_CHUNK_MAX];
+    int n = -1;
+    if (end != p && *end == ' ') {
+      while (*end == ' ') end++;
+      n = FirmwareUpdater::parseHex(end, chunk, sizeof(chunk));
+    }
+    if (n <= 0) {
+      sprintf(resp, "Error, use: ota data <offset> <hex> (1 to %d bytes)", OTA_CHUNK_MAX);
+      return;
+    }
+    _updater.write(offset, chunk, n, resp);
+  } else if (memcmp(args, "end", 3) == 0 && (args[3] == 0 || args[3] == ' ')) {
+    const char* p = &args[3];
+    while (*p == ' ') p++;
+    _updater.end(strcmp(p, "noreboot") != 0, resp);
+  } else if (strcmp(args, "abort") == 0) {
+    _updater.abort(resp);
+  } else if (strcmp(args, "status") == 0) {
+    _updater.status(resp);
+  } else if (strcmp(args, "rollback") == 0) {
+    _updater.rollback(resp);
+  } else {
+    strcpy(resp, "Error, use: ota begin <size> [<signature hex>] | ota data <offset> <hex> | ota end [noreboot] | ota abort | ota status | ota rollback");
+  }
+}

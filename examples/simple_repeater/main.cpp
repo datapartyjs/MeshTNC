@@ -494,8 +494,8 @@ public:
     bool wanted = _sleep_cmd || (_prefs.powersave && _cli.getCLIMode() == CLIMode::KISS);
     if (!wanted) return;
 
-    // anything in progress keeps the MCU awake
-    if (Serial.available() || !_cli.isIdle() || !millisHasNowPassed(_awake_until)) return;
+    // anything in progress keeps the MCU awake (a firmware upload: the UART wake loses bytes)
+    if (Serial.available() || !_cli.isIdle() || _cli.isUpdating() || !millisHasNowPassed(_awake_until)) return;
     if (isSending() || _mgr->getOutboundCount(0xFFFFFFFF) > 0) return;
     if (_poweroff_at || _prefs.ble_enabled) return;
     if (!millisHasNowPassed(_led_boot_until) || !millisHasNowPassed(_led_crit_until) ||
@@ -775,6 +775,7 @@ public:
     }
 #endif
     mesh::Dispatcher::loop();
+    _cli.loop();   // reboots after an 'ota end' / 'ota rollback' reply has gone out
     checkTemperature();
     updateStatusLed();
 
