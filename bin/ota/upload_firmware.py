@@ -37,13 +37,17 @@ class Link:
         self.buf = bytearray()
         self.esc = False
         self.in_frame = False
+        self.last_io = 0.0   # when the TNC last received or sent something
 
-    def wake(self):
-        # 'set powersave on' TNCs lose the bytes that wake them: a few empty frames first
-        self.ser.write(bytes([FEND] * 4) if self.mode == "kiss" else b"\r")
-        self.ser.flush()
-        time.sleep(0.3)
-        self.ser.reset_input_buffer()
+    def wake_if_idle(self):
+        # A 'set powersave on' TNC light-sleeps in KISS mode once the serial link has been
+        # idle for 200 ms, and bytes that arrive while it wakes up (about a millisecond: a
+        # whole short frame at 921600 baud) are lost. So after any idle gap, a burst of empty
+        # frames first, long enough to outlast the wake-up, then the real frame right behind
+        # it while the TNC is still awake. Harmless when it was awake, or in text mode.
+        if self.mode == "kiss" and time.time() - self.last_io > 0.15:
+            self.ser.write(bytes([FEND] * 400))
+            self.ser.flush()
 
     def send_text(self, line):
         # text CLI (no KISS framing), used by --enter-kiss and --verify
@@ -51,6 +55,8 @@ class Link:
         self.ser.flush()
 
     def send(self, cmd):
+        self.wake_if_idle()
+        self.last_io = time.time()
         if self.mode == "kiss":
             frame = bytearray([FEND, CLI_PORT_CMD])
             for b in cmd.encode():
@@ -77,6 +83,7 @@ class Link:
                         self.buf.clear()
                         self.esc = False
                         if frame[0] == CLI_PORT_CMD:
+                            self.last_io = time.time()
                             return frame[1:].decode(errors="replace")
                         self.other_frames += 1
                     self.buf.clear()
@@ -103,6 +110,7 @@ class Link:
                     text = line.decode(errors="replace")
                     line.clear()
                     if text.startswith("  -> "):
+                        self.last_io = time.time()
                         return text[5:]
                 else:
                     line.append(b)
@@ -147,13 +155,13 @@ def main():
         sig_hex = sig.hex()
 
     link = Link(args.port, args.baud, "cli" if args.enter_kiss else args.mode, args.timeout)
-    link.wake()
-    if args.enter_kiss:
+    time.sleep(0.2)
+    link.ser.reset_input_buffer()
+    if args.enter_kiss:   # text mode: the TNC never sleeps there, no wake-up needed
         link.send_text("serial mode kiss")
         time.sleep(0.5)
         link.ser.reset_input_buffer()
         link.mode = "kiss"
-        link.wake()
 
     status = link.command("ota status")
     print("TNC: %s" % status)
