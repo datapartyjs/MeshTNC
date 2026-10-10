@@ -138,20 +138,39 @@ bool radio_init() {
 
   spi_sx1281.setFrequency(13000000);
   spi_sx1281.begin();
-  //spi_sx1281.setFrequency(13000000);
 
-
-  auto wr = [&](uint8_t val) {
-    digitalWrite(P_SX1281_NSS, LOW);
-    spi_sx1281.transfer(0x84);
-    spi_sx1281.transfer(0x01);
-    digitalWrite(P_SX1281_NSS, HIGH);
-  };
   pinMode(P_SX1281_NSS, OUTPUT);
   digitalWrite(P_SX1281_NSS, HIGH);
-  spi_sx1281.beginTransaction(SPISettings(13000000, MSBFIRST, SPI_MODE0));
-  wr(0x08);  delay(2);  //sleep mode
-  spi_sx1281.endTransaction();
+
+#ifndef P_SX1281_RESET
+  // The SX1281 NRESET is tied to CHIP_PU, so a warm MCU reboot (esp_restart - e.g. esp-tap's
+  // "reboot", or any reset that isn't a power cycle) never resets the radio. If a previous run
+  // left it in retained sleep - most commonly 'poweroff lora' at shutdown - it is STILL asleep
+  // here. (A cold power-on is different: CHIP_PU rises from 0 and pulses NRESET, so the chip is
+  // freshly reset and the old code worked.)
+  //
+  // An SX128x wakes on an NSS falling edge and then holds BUSY high until it is ready; a
+  // command clocked while BUSY is high corrupts its state machine. The chip reads BUSY LOW both
+  // when awake-and-ready and when asleep, so we can't test first: pulse NSS unconditionally (a
+  // bare CS toggle is harmless on an already-awake chip) and then wait for BUSY to settle low
+  // before any SPI command. This is exactly what the previous raw "SetSleep" write got wrong -
+  // it asserted NSS and immediately clocked 0x84,0x01 while the just-woken chip still held BUSY
+  // high, which is the warm-reboot corruption. std_init() re-checks BUSY and configures from
+  // the resulting STDBY state, same as at cold boot.
+  digitalWrite(P_SX1281_NSS, LOW);
+  delayMicroseconds(100);
+  digitalWrite(P_SX1281_NSS, HIGH);
+  {
+    unsigned long t0 = millis();
+    while (digitalRead(P_SX1281_BUSY) == HIGH) {
+      if (millis() - t0 > SX1281_WAKE_TIMEOUT_MS) {
+        Serial.println("WARN: SX1281 BUSY stuck HIGH after wake pulse (std_init will retry)");
+        break;
+      }
+      delayMicroseconds(50);
+    }
+  }
+#endif
 
   // Init SX1281 — 2400 MHz, 203.125 kHz BW, SF9, CR4/7, 20 dBm
   // start at the lowest drive; radio_apply_tx_power() sets the real one before any TX
